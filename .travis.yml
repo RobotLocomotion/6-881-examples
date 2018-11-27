@@ -1,0 +1,28 @@
+language: python
+python:
+  - 2.7
+
+sudo: required
+
+os:
+  - linux
+
+services:
+  - docker
+
+# env:
+#   global:
+#   - CONDA_DEPS="pytest numpy"
+#   - PYTHONPATH="$HOME/underactuated:/opt/drake/lib/python2.7/site-packages"
+#   matrix:
+#   - DRAKE_URL="https://drake-packages.csail.mit.edu/drake/nightly/drake-20180604-xenial.tar.gz"
+#   - DRAKE_URL="https://drake-packages.csail.mit.edu/drake/nightly/drake-latest-xenial.tar.gz"
+
+before_install:
+  docker pull mit6881/drake-course:drake-20181112
+
+# install:
+#   - docker build -t test --build-arg DRAKE_URL=$DRAKE_URL .
+
+script:
+  - docker run --rm mit6881/drake-course:drake-20181112
