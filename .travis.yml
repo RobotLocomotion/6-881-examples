@@ -19,10 +19,10 @@ services:
 #   - DRAKE_URL="https://drake-packages.csail.mit.edu/drake/nightly/drake-latest-xenial.tar.gz"
 
 before_install:
-  docker pull mit6881/drake-course:drake-20181112
+  docker pull mit6881/drake-course:drake-20181127
 
 # install:
 #   - docker build -t test --build-arg DRAKE_URL=$DRAKE_URL .
 
 script:
-  - docker run --rm mit6881/drake-course:drake-20181112
+  - docker run --rm mit6881/drake-course:drake-20181127
