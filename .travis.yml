@@ -25,4 +25,4 @@ before_install:
 #   - docker build -t test --build-arg DRAKE_URL=$DRAKE_URL .
 
 script:
-  - docker run --rm mit6881/drake-course:drake-20181127
+  - python ./docker_run.py --entrypoint /6-881-examples/run_tests.sh

@@ -1,0 +1,179 @@
+digraph _71354432 {
+rankdir=LR
+subgraph cluster71354432diagram {
+color=black
+concentrate=true
+label="71354432";
+subgraph cluster71354432inputports {
+rank=same
+color=lightgrey
+style=filled
+label="input ports"
+}
+subgraph cluster71354432outputports {
+rank=same
+color=lightgrey
+style=filled
+label="output ports"
+}
+subgraph cluster71354432subsystems {
+color=white
+label=""
+subgraph cluster48482656diagram {
+color=black
+concentrate=true
+label="drake/examples/manipulation_station/ManipulationStation@0000000002e3c960";
+subgraph cluster48482656inputports {
+rank=same
+color=lightgrey
+style=filled
+label="input ports"
+_48482656_u0[color=blue, label="u0"];
+_48482656_u1[color=blue, label="u1"];
+_48482656_u2[color=blue, label="u2"];
+_48482656_u3[color=blue, label="u3"];
+}
+subgraph cluster48482656outputports {
+rank=same
+color=lightgrey
+style=filled
+label="output ports"
+_48482656_y0[color=green, label="y0"];
+_48482656_y1[color=green, label="y1"];
+_48482656_y2[color=green, label="y2"];
+_48482656_y3[color=green, label="y3"];
+_48482656_y4[color=green, label="y4"];
+_48482656_y5[color=green, label="y5"];
+_48482656_y6[color=green, label="y6"];
+_48482656_y7[color=green, label="y7"];
+_48482656_y8[color=green, label="y8"];
+_48482656_y9[color=green, label="y9"];
+_48482656_y10[color=green, label="y10"];
+_48482656_y11[color=green, label="y11"];
+_48482656_y12[color=green, label="y12"];
+_48482656_y13[color=green, label="y13"];
+_48482656_y14[color=green, label="y14"];
+_48482656_y15[color=green, label="y15"];
+_48482656_y16[color=green, label="y16"];
+_48482656_y17[color=green, label="y17"];
+_48482656_y18[color=green, label="y18"];
+_48482656_y19[color=green, label="y19"];
+_48482656_y20[color=green, label="y20"];
+}
+subgraph cluster48482656subsystems {
+color=white
+label=""
+48484224 [shape=record, label="drake/multibody/multibody_plant/MultibodyPlant@0000000002e3cf80|{{<u0>geometry_query|<u1>iiwa_actuation|<u2>gripper_actuation} | {<y0>geometry_pose|<y1>continuous_state|<y2>iiwa_continuous_state|<y3>gripper_continuous_state|<y4>cupboard_continuous_state|<y5>object_continuous_state|<y6>iiwa_generalized_contact_forces|<y7>gripper_generalized_contact_forces|<y8>cupboard_generalized_contact_forces|<y9>object_generalized_contact_forces|<y10>contact_results}}"];
+53758640 [shape=record, label="drake/geometry/SceneGraph@0000000003344ab0|{{<u0>Source_5_pose} | {<y0>lcm_visualization|<y1>query}}"];
+66332512 [shape=record, label="drake/systems/PassThrough@0000000003f42760|{{<u0>u0} | {<y0>y0}}"];
+117008192 [shape=record, label="drake/systems/Demultiplexer@0000000006f96740|{{<u0>u0} | {<y0>y0|<y1>y1}}"];
+subgraph cluster70204496diagram {
+color=black
+concentrate=true
+label="iiwa_controller";
+subgraph cluster70204496inputports {
+rank=same
+color=lightgrey
+style=filled
+label="input ports"
+_70204496_u0[color=blue, label="u0"];
+_70204496_u1[color=blue, label="u1"];
+}
+subgraph cluster70204496outputports {
+rank=same
+color=lightgrey
+style=filled
+label="output ports"
+_70204496_y0[color=green, label="y0"];
+}
+subgraph cluster70204496subsystems {
+color=white
+label=""
+89895088 [shape=record, label="drake/systems/controllers/InverseDynamics@00000000055bb0b0|{{<u0>u0|<u1>u1} | {<y0>y0}}"];
+117011576 [shape=record, label="drake/systems/controllers/PidController@0000000006f97478 | { {<u0> x |<u1> x_d} |<y0> y}"];
+65457744 [shape=record, label="drake/systems/PassThrough@0000000003e6ce50|{{<u0>u0} | {<y0>y0}}"];
+67498672 [shape=record, label="drake/systems/Adder@000000000405f2b0|{{<u0>u0|<u1>u1} | {<y0>sum}}"];
+98108352 [shape=record, label="drake/systems/ConstantVectorSource@0000000005d903c0|{{} | {<y0>y0}}"];
+117011576:y0 -> 67498672:u0;
+98108352:y0 -> 67498672:u1;
+65457744:y0 -> 89895088:u0;
+67498672:y0 -> 89895088:u1;
+65457744:y0 -> 117011576:u0;
+_70204496_u0 -> 65457744:u0 [color=blue];
+_70204496_u1 -> 117011576:u1 [color=blue];
+89895088:y0 -> _70204496_y0 [color=green];
+}
+}
+67330768 [shape=record, label="drake/systems/Adder@00000000040362d0|{{<u0>u0|<u1>u1} | {<y0>sum}}"];
+69359104 [shape=record, label="desired_state_from_position|{{<u0>u0} | {<y0>y0}}"];
+103553552 [shape=record, label="wsg_controller|{{<u0>desired_position|<u1>force_limit|<u2>state} | {<y0>generalized_force|<y1>grip_force}}"];
+98082544 [shape=record, label="drake/systems/MatrixGain@0000000005d89ef0|{{<u0>u0} | {<y0>y0}}"];
+65731376 [shape=record, label="drake/geometry/dev/SceneGraph@0000000003eafb30|{{<u0>Source_5_pose} | {<y0>lcm_visualization|<y1>query}}"];
+67720144 [shape=record, label="camera0|{{<u0>geometry_query} | {<y0>color_image|<y1>depth_image|<y2>label_image|<y3>X_WB}}"];
+124033600 [shape=record, label="camera1|{{<u0>geometry_query} | {<y0>color_image|<y1>depth_image|<y2>label_image|<y3>X_WB}}"];
+124039152 [shape=record, label="camera2|{{<u0>geometry_query} | {<y0>color_image|<y1>depth_image|<y2>label_image|<y3>X_WB}}"];
+53758640:y1 -> 48484224:u0;
+67330768:y0 -> 48484224:u1;
+103553552:y0 -> 48484224:u2;
+48484224:y0 -> 53758640:u0;
+48484224:y0 -> 65731376:u0;
+_70204496_y0 -> 67330768:u0;
+65731376:y1 -> 67720144:u0;
+66332512:y0 -> 69359104:u0;
+48484224:y2 -> _70204496_u0;
+69359104:y0 -> _70204496_u1;
+48484224:y3 -> 98082544:u0;
+48484224:y3 -> 103553552:u2;
+48484224:y2 -> 117008192:u0;
+65731376:y1 -> 124033600:u0;
+65731376:y1 -> 124039152:u0;
+_48482656_u0 -> 66332512:u0 [color=blue];
+_48482656_u1 -> 67330768:u1 [color=blue];
+_48482656_u2 -> 103553552:u0 [color=blue];
+_48482656_u3 -> 103553552:u1 [color=blue];
+66332512:y0 -> _48482656_y0 [color=green];
+117008192:y0 -> _48482656_y1 [color=green];
+117008192:y1 -> _48482656_y2 [color=green];
+48484224:y2 -> _48482656_y3 [color=green];
+67330768:y0 -> _48482656_y4 [color=green];
+67330768:y0 -> _48482656_y5 [color=green];
+98082544:y0 -> _48482656_y6 [color=green];
+103553552:y1 -> _48482656_y7 [color=green];
+48484224:y6 -> _48482656_y8 [color=green];
+67720144:y0 -> _48482656_y9 [color=green];
+67720144:y1 -> _48482656_y10 [color=green];
+67720144:y2 -> _48482656_y11 [color=green];
+124033600:y0 -> _48482656_y12 [color=green];
+124033600:y1 -> _48482656_y13 [color=green];
+124033600:y2 -> _48482656_y14 [color=green];
+124039152:y0 -> _48482656_y15 [color=green];
+124039152:y1 -> _48482656_y16 [color=green];
+124039152:y2 -> _48482656_y17 [color=green];
+53758640:y0 -> _48482656_y18 [color=green];
+48484224:y10 -> _48482656_y19 [color=green];
+48484224:y1 -> _48482656_y20 [color=green];
+}
+}
+68081920 [shape=record, label="Manipulation Plan Runner|{{<u0>iiwa_position|<u1>iiwa_velocity} | {<y0>iiwa_position_and_torque_command|<y1>gripper_setpoint|<y2>force_limit}}"];
+68687216 [shape=record, label="drake/systems/Demultiplexer@0000000004181570|{{<u0>u0} | {<y0>y0|<y1>y1}}"];
+70394000 [shape=record, label="Meshcat|{{<u0>lcm_visualization|<u1>contact_results} | {}}"];
+72947984 [shape=record, label="drake/systems/SignalLogger@0000000004591910|{{<u0>data} | {}}"];
+67379904 [shape=record, label="drake/systems/SignalLogger@00000000040422c0|{{<u0>data} | {}}"];
+70896848 [shape=record, label="drake/systems/SignalLogger@000000000439ccd0|{{<u0>data} | {}}"];
+106650880 [shape=record, label="drake/systems/SignalLogger@00000000065b5d00|{{<u0>data} | {}}"];
+68687216:y0 -> _48482656_u0;
+68687216:y1 -> _48482656_u1;
+68081920:y1 -> _48482656_u2;
+68081920:y2 -> _48482656_u3;
+_48482656_y8 -> 67379904:u0;
+_48482656_y1 -> 68081920:u0;
+_48482656_y2 -> 68081920:u1;
+68081920:y0 -> 68687216:u0;
+_48482656_y18 -> 70394000:u0;
+_48482656_y19 -> 70394000:u1;
+_48482656_y1 -> 70896848:u0;
+68687216:y0 -> 72947984:u0;
+_48482656_y20 -> 106650880:u0;
+}
+}
+}
