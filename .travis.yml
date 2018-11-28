@@ -10,19 +10,8 @@ os:
 services:
   - docker
 
-# env:
-#   global:
-#   - CONDA_DEPS="pytest numpy"
-#   - PYTHONPATH="$HOME/underactuated:/opt/drake/lib/python2.7/site-packages"
-#   matrix:
-#   - DRAKE_URL="https://drake-packages.csail.mit.edu/drake/nightly/drake-20180604-xenial.tar.gz"
-#   - DRAKE_URL="https://drake-packages.csail.mit.edu/drake/nightly/drake-latest-xenial.tar.gz"
-
-before_install:
-  docker pull mit6881/drake-course:drake-20181127
-
-# install:
-#   - docker build -t test --build-arg DRAKE_URL=$DRAKE_URL .
+install:
+  - docker build -t mit6881 -f ubuntu16_04_mit6881.dockerfile .
 
 script:
   - python ./docker_run.py --entrypoint /6-881-examples/run_tests.sh

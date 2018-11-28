@@ -20,7 +20,7 @@ if __name__=="__main__":
     args = parser.parse_args()
     source_dir = os.getcwd()
 
-    image_name = 'mit6881/drake-course:drake-20181127'
+    image_name = 'mit6881'
     print("running docker container derived from image %s" % image_name)
     home_directory = '/home/' + user_name
 
