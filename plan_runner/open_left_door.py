@@ -220,7 +220,7 @@ def AddOpenDoorFullyPlans(plan_list, gripper_setpoint_list):
     gripper_setpoint_list.append(0.10)
 
 
-
+# global variables used for all door-opening plans.
 handle_angle_end = np.pi/180*50
 open_door_duration = 10.
 
