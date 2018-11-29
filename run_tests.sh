@@ -8,7 +8,7 @@ Xvfb :100 -ac -screen 0 800x600x24 &
 sleep 1
 
 # Launch a complete robot context and execute some canned movement.
-DISPLAY=:100 python test_plan_runner.py
+DISPLAY=:100 python run_tests.py
 exit_status=$?
 if [ ! $exit_status -eq 0 ]; then
   echo "Error code in running unit tests: " $exit_status

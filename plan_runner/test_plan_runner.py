@@ -77,14 +77,3 @@ class TestOpenDoor(unittest.TestCase):
             self.assertTrue(
                 self.HasReturnedToQtarget(q_iiwa_beginning, plant_state_log, manip_station_sim.plant))
 
-
-if __name__ == "__main__":
-    # Run tests
-    test_cases = [TestOpenDoor,]
-    suite = unittest.TestSuite()
-    for test_class in test_cases:
-        tests = unittest.defaultTestLoader.loadTestsFromTestCase(test_class)
-        suite.addTests(tests)
-
-    unittest.TextTestRunner(verbosity=2).run(suite)
-
