@@ -1,9 +1,9 @@
 import argparse
-from plan_runner.manipulation_station_simulator import ManipulationStationSimulator
-
 import numpy as np
 
 from pydrake.common import FindResourceOrThrow
+
+from plan_runner.manipulation_station_simulator import ManipulationStationSimulator
 from plan_runner.manipulation_station_plan_runner import *
 from plan_runner.open_left_door import (GenerateOpenLeftDoorPlansByTrajectory,
                                         GenerateOpenLeftDoorPlansByImpedanceOrPosition,)
@@ -17,7 +17,7 @@ if __name__ == '__main__':
              "in-process simulation.")
     parser.add_argument(
         "--open_fully", action='store_true',
-        help="Add additional plans to fully open the door after imepdance/position plans.")
+        help="Add additional plans to fully open the door after impedance/position plans.")
     parser.add_argument(
         "-c", "--controller", type=str, default="Trajectory",
         choices=["Trajectory", "Impedance", "Position"],
@@ -57,4 +57,3 @@ if __name__ == '__main__':
                 plan_list, gripper_setpoint_list, extra_time=2.0, real_time_rate=1.0, q0_kuka=q0)
         PlotExternalTorqueLog(iiwa_external_torque_log)
         PlotIiwaPositionLog(iiwa_position_command_log, iiwa_position_measured_log)
-

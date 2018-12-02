@@ -1,9 +1,10 @@
-from manipulation_station_plan_runner import *
 from pydrake.multibody import inverse_kinematics
-from pydrake.util.eigen_geometry import Isometry3
+from pydrake.common.eigen_geometry import Isometry3
 from pydrake.math import RollPitchYaw, RotationMatrix
 
-# global variables for
+from plan_runner.manipulation_station_plan_runner import *
+
+# Define global variables used for IK.
 plant = station.get_mutable_multibody_plant()
 tree = plant.tree()
 
@@ -15,12 +16,16 @@ gripper_frame = plant.GetFrameByName("body", gripper_model)
 
 R_EEa = RotationMatrix(X_EEa.rotation())
 
-# q returned by IK consists of the configuration of all bodies, including
-# the iiwa arm, the box, the gripper and the bottle.
-# But the trajectory sent to iiwa only needs the configuration of iiwa.
-# This function takes in an array of shape (n, plant.num_positions()),
-# and returns an array of shape (n, 7), which only has the configuration of the iiwa arm.
+
 def GetKukaQKnots(q_knots):
+    """
+    q returned by IK consists of the configuration of all bodies in a MultibodyTree.
+    In this case, it includes the iiwa arm, the cupboard doors, the gripper and the manipulands, but
+    the trajectory sent to iiwa only needs the configuration of iiwa itself.
+
+    This function takes in an array of shape (n, plant.num_positions()),
+    and returns an array of shape (n, 7), which only has the configuration of the iiwa arm.
+    """
     if len(q_knots.shape) == 1:
         q_knots.resize(1, q_knots.size)
     n = q_knots.shape[0]
@@ -39,6 +44,28 @@ def InverseKinPointwise(p_WQ_start, p_WQ_end, duration,
                         position_tolerance=0.005,
                         theta_bound=0.005 * np.pi, # 0.9 degrees
                         is_printing=True):
+    """
+    Calculates a joint space trajectory for iiwa by repeatedly calling IK. The first IK is initialized (seeded)
+    with q_initial_guess. Subsequent IKs are seeded with the solution from the previous IK.
+
+    Positions for point Q (p_EQ) and orientations for the end effector, generated respectively by
+    InterpolatePosition and InterpolateOrientation, are added to the IKs as constraints.
+
+    @param p_WQ_start: The first argument of function InterpolatePosition (defined below).
+    @param p_WQ_end: The second argument of function InterpolatePosition (defined below).
+    @param duration: The duration of the trajectory returned by this function in seconds.
+    @param num_knot_points: number of knot points in the trajectory.
+    @param q_initial_guess: initial guess for the first IK.
+    @param InterpolatePosition: A function with signature (start, end, num_knot_points, i). It returns
+       p_WQ, a (3,) numpy array which describes the desired position of Q at knot point i in world frame.
+    @param InterpolateOrientation: A function with signature
+    @param position_tolerance: tolerance for IK position constraints in meters.
+    @param theta_bound: tolerance for IK orientation constraints in radians.
+    @param is_printing: whether the solution results of IKs are printed.
+    @return: qtraj: a 7-dimensional cubic polynomial that describes a trajectory for the iiwa arm.
+    @return: q_knots: a (n, num_knot_points) numpy array (where n = plant.num_positions()) that stores solutions
+        returned by all IKs. It can be used to initialize IKs for the next trajectory.
+    """
     q_knots = np.zeros((num_knot_points + 1, plant.num_positions()))
     q_knots[0] = q_initial_guess
 
@@ -79,6 +106,10 @@ def InverseKinPointwise(p_WQ_start, p_WQ_end, duration,
 
 
 def GetHomeConfiguration(is_printing=True):
+    """
+    Returns a configuration of the MultibodyPlant in which point Q (defined by global variable p_EQ)
+    in robot EE frame is at p_WQ_home, and orientation of frame Ea is R_WEa_ref.
+    """
     # get "home" pose
     ik_scene = inverse_kinematics.InverseKinematics(plant)
 
@@ -108,6 +139,13 @@ def GetHomeConfiguration(is_printing=True):
 
 
 def GenerateApproachHandlePlans(InterpolateOrientation, is_printing=True):
+    """
+    Returns a list of Plans that move the end effector from its home position to
+    the left door handle. Also returns the corresponding gripper setpoints and IK solutions.
+
+    @param InterpolateOrientation: a function passed to InverseKinPointwise, which returns the desired
+        end effector orienttion along the trajectory. 
+    """
     q_home_full = GetHomeConfiguration(is_printing)
 
     def InterpolateStraightLine(p_WQ_start, p_WQ_end, num_knot_points, i):
@@ -148,14 +186,19 @@ def GenerateApproachHandlePlans(InterpolateOrientation, is_printing=True):
 
 def GenerateOpenLeftDoorTrajectory(q_initial_guess, handle_angle_end,
                                    duration, is_printing=True):
+    """
+    Creates an iiwa trajectory that opens the left door by pulling the handle.
+    The left door should be fully closed at the beginning of the trajectory.
+    @param q_initial_guess: initial guess for the first IK.
+    @param handle_angle_end: the desired left door angle at the end of the trajectory.
+    @param duration: duration of the open-door trajectory.
+    @param is_printing: whether IK solution results are printed to the screen.
+    """
     # pull handle along an arc
     def InterpolateArc(angle_start, angle_end, num_knot_points, i):
         radius = r_handle
         theta = angle_start + (angle_end - angle_start)*(i+1)/num_knot_points
         return p_WC_left_hinge + [-radius * np.sin(theta), -radius * np.cos(theta), 0]
-
-    def ReturnConstantOrientation(i, num_knot_points):
-        return R_WEa_ref
 
     angle_start = theta0_hinge
     angle_end = handle_angle_end
@@ -176,6 +219,10 @@ def GenerateOpenLeftDoorTrajectory(q_initial_guess, handle_angle_end,
     return qtraj_pull_handle
 
 def AddOpenDoorFullyPlans(plan_list, gripper_setpoint_list):
+    """
+    Appends to plan_list and gripper_setpoint_list hand-crafted trajectories that push
+    the left door fully open (~90 degrees) after pulling.
+    """
     # Add zero order old to open gripper
     plan_open_gripper = JointSpacePlanRelative(
         duration=2.0, delta_q=np.zeros(7))
@@ -225,6 +272,13 @@ handle_angle_end = np.pi/180*50
 open_door_duration = 10.
 
 def GenerateOpenLeftDoorPlansByTrajectory(is_printing=True):
+    """
+    Creates iiwa plans and gripper set points that
+    - starts at a home configuration,
+    - approaches the left door,
+    - opens the left door by pulling the handle.
+    The pulling actions are a result of following a joint space trajectory generated by solving IKs.
+    """
     def InterpolatePitchAngle(i, num_knot_points):
         assert i <= num_knot_points
         pitch_start = np.pi / 180 * 135
@@ -246,6 +300,15 @@ def GenerateOpenLeftDoorPlansByTrajectory(is_printing=True):
 
 def GenerateOpenLeftDoorPlansByImpedanceOrPosition(
         open_door_method="Impedance", is_open_fully=False, is_printing=True):
+    """
+    Creates iiwa plans and gripper set points that
+    - starts at a home configuration,
+    - approaches the left door,
+    - opens the left door by pulling the handle.
+    The pulling actions are a result of following commands generated by a Position or Impedance controller. Details
+    of the controllers are defined in the lab 2 handout. There are no explict trajectories to follow.
+    If is_open_fully is True, the robot executes a hand-crafted maneuver to push the door fully open.
+    """
     def ReturnConstantOrientation(i, num_knot_points):
         return R_WEa_ref
 

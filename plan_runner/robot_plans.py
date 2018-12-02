@@ -1,7 +1,7 @@
 import numpy as np
 from pydrake.trajectories import PiecewisePolynomial
 from pydrake.math import RollPitchYaw
-from pydrake.util.eigen_geometry import Isometry3, Quaternion
+from pydrake.common.eigen_geometry import Isometry3, Quaternion
 from pydrake.examples.manipulation_station import ManipulationStation
 from pydrake.multibody.multibody_tree.multibody_plant import MultibodyPlant
 from plan_utils import *
@@ -53,8 +53,7 @@ class JointSpacePlan(PlanBase):
                           trajectory=trajectory)
 
 '''
-The robot goes from its current configuration at the beginning of this plan
-to q_target. 
+The robot goes to q_target from its configuration when this plan starts. 
 '''
 class JointSpacePlanGoToTarget(PlanBase):
     def __init__(self, duration, q_target):
@@ -71,7 +70,7 @@ class JointSpacePlanGoToTarget(PlanBase):
 
 
 '''
-The robot goes from its current configuration (q_current) at the beginning of this plan by
+The robot goes from its configuration when this plan starts (q_current) by
 delta_q to reach the final configuration (q_current + delta_q).
 '''
 class JointSpacePlanRelative(PlanBase):

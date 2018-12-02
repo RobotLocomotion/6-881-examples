@@ -14,4 +14,4 @@ install:
   - docker build -t mit6881 -f ubuntu16_04_mit6881.dockerfile .
 
 script:
-  - python ./docker_run.py --entrypoint /6-881-examples/run_tests.sh
+  - python ./docker_run.py --os linux --entrypoint /6-881-examples/run_tests.sh

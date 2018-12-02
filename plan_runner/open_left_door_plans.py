@@ -1,7 +1,7 @@
 from robot_plans import *
 
 #--------------------------------------------------------------------------------------------------
-#-----------------------------------------------Open left door related-----------------------------
+#------------------------------------ open left door related constants       ----------------
 # Define positions and transforms used in various tasks, e.g. opening left door.
 # home position of point Q in world frame.
 p_WQ_home = np.array([0.5, 0, 0.41])
@@ -48,18 +48,17 @@ class OpenLeftDoorPlan(PlanBase):
                           type=type,
                           trajectory=angle_traj)
 
-    def CalcKinematics(
-            self, l7_frame, world_frame, tree_iiwa, context_iiwa, t_plan):
-        '''
-        :param X_L7E: transformation from frame E (end effector) to frame L7.
-        :param l7_frame: A BodyFrame object of frame L7.
-        :param world_frame: A BodyFrame object of the world frame.
-        :param tree_iiwa: A MultibodyTree object of the robot.
-        :param context_iiwa: A Context object that describes the current state of the robot.
-        :param t_plan: time passed since the beginning of this Plan, expressed in seconds.
-        :return: Jv_WL7q: geometric jacboain of point Q in frame L7.
+    def CalcKinematics(self, l7_frame, world_frame, tree_iiwa, context_iiwa, t_plan):
+        """
+        @param X_L7E: transformation from frame E (end effector) to frame L7.
+        @param l7_frame: A BodyFrame object of frame L7.
+        @param world_frame: A BodyFrame object of the world frame.
+        @param tree_iiwa: A MultibodyTree object of the robot.
+        @param context_iiwa: A Context object that describes the current state of the robot.
+        @param t_plan: time passed since the beginning of this Plan, expressed in seconds.
+        @return: Jv_WL7q: geometric jacboain of point Q in frame L7.
                 p_HrQ: position of point Q relative to frame Hr.
-        '''
+        """
         # calculate Geometric jacobian (6 by 7 matrix) of point Q in frame L7.
         p_L7Q = X_L7E.multiply(p_EQ)
         Jv_WL7q = tree_iiwa.CalcFrameGeometricJacobianExpressedInWorld(
@@ -71,8 +70,6 @@ class OpenLeftDoorPlan(PlanBase):
         # p_HrQ: position of point Q relative to frame Hr.
         # X_WHr: transformation from Hr to world frame W.
         X_WHr = Isometry3()
-        # Your code here
-        #------------------------------------------------------------------------#
         handle_angle_ref = self.traj.value(t_plan).flatten()
         X_WHr.set_rotation(
             RollPitchYaw(0, 0, -handle_angle_ref).ToRotationMatrix().matrix())
@@ -80,7 +77,6 @@ class OpenLeftDoorPlan(PlanBase):
             p_WC_left_hinge +
             [-r_handle * np.sin(handle_angle_ref),
              -r_handle * np.cos(handle_angle_ref), 0])
-        #------------------------------------------------------------------------#
         X_HrW = X_WHr.inverse()
 
         X_WL7 = tree_iiwa.CalcRelativeTransform(
@@ -107,16 +103,14 @@ class OpenLeftDoorPositionPlan(OpenLeftDoorPlan):
         self.q_iiwa_previous = np.zeros(7)
 
     def CalcPositionCommand(self, t_plan, q_iiwa, Jv_WL7q, p_HrQ, Q_L7L7r, Q_WL7, control_period):
-        '''
-        :param t_plan: t_plan: time passed since the beginning of this Plan, expressed in seconds.
-        :param q_iiwa: current configuration of the robot.
-        :param Jv_WL7q: geometric jacboain of point Q in frame L7.
-        :param p_HrQ: position of point Q relative to frame Hr.
-        :param control_period: the amount of time between consecutive command updates.
-        :return: position command to the robot.
-        '''
-        # Your code here
-        #------------------------------------------------------------------------#
+        """
+        @param t_plan: t_plan: time passed since the beginning of this Plan, expressed in seconds.
+        @param q_iiwa: current configuration of the robot.
+        @param Jv_WL7q: geometric jacboain of point Q in frame L7.
+        @param p_HrQ: position of point Q relative to frame Hr.
+        @param control_period: the amount of time between consecutive command updates.
+        @return: position command to the robot.
+        """
         if t_plan < self.duration:
             # first 3: angular velocity, last 3: translational velocity
             v_ee_desired = np.zeros(6)
@@ -137,7 +131,6 @@ class OpenLeftDoorPositionPlan(OpenLeftDoorPlan):
             return q_iiwa + qdot_desired * control_period
         else:
             return self.q_iiwa_previous
-        #------------------------------------------------------------------------#
 
     def CalcTorqueCommand(self):
         return np.zeros(7)
@@ -161,8 +154,6 @@ class OpenLeftDoorImpedancePlan(OpenLeftDoorPlan):
             return self.q_iiwa_previous
 
     def CalcTorqueCommand(self, t_plan, Jv_WL7q, p_HrQ, Q_L7L7r, Q_WL7):
-        # Your code here
-        #------------------------------------------------------------------------#
         if t_plan < self.duration:
             # first 3: angular velocity, last 3: translational velocity
             f_ee_desired = np.zeros(6)
@@ -178,4 +169,3 @@ class OpenLeftDoorImpedancePlan(OpenLeftDoorPlan):
             return np.clip(Jv_WL7q.T.dot(f_ee_desired), -20, 20)
         else:
             return np.zeros(7)
-        #------------------------------------------------------------------------#
