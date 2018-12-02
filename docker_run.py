@@ -31,7 +31,7 @@ if __name__=="__main__":
 
     cmd += " -e DISPLAY -e QT_X11_NO_MITSHM=1 -v /tmp/.X11-unix:/tmp/.X11-unix:rw "     # enable graphics
     cmd += " -v ~/.ssh:%(home_directory)s/.ssh " % {'home_directory': home_directory}   # mount ssh keys
-    cmd += " -v %(source_dir)s:/6-881-examples/ " % {'source_dir': source_dir}
+    cmd += " -v '%(source_dir)s':/6-881-examples/ " % {'source_dir': source_dir}
 
     # Port for meshcat
     cmd += " -p 7000:7000 "

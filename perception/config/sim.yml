@@ -1,0 +1,71 @@
+left_camera:
+  serial_no: 1
+
+  world_transform:
+    x: -0.197236
+    y: 0.468471
+    z: 0.436499
+    roll: -1.68974
+    pitch: 0.20245
+    yaw: -0.706783
+
+  internal_transform:
+    x: 0
+    y: 0.02
+    z: 0
+    roll: -1.570796
+    pitch: 0
+    yaw: -1.570796
+
+  camera_info:
+    width: 640
+    height: 480
+    fov_y: 0.78539816339 # pi / 4
+
+middle_camera:
+  serial_no: 2
+
+  world_transform:
+    x: 0.786905
+    y: -0.0284378
+    z: 1.04287
+    roll: 0.0438918
+    pitch: 1.03776
+    yaw: -3.13612
+
+  internal_transform:
+    x: 0
+    y: 0.02
+    z: 0
+    roll: -1.570796
+    pitch: 0
+    yaw: -1.570796
+
+  camera_info:
+    width: 640
+    height: 480
+    fov_y: 0.78539816339 # pi / 4
+
+right_camera:
+  serial_no: 0
+
+  world_transform:
+    x: -0.233066
+    y: -0.451461
+    z: 0.466761
+    roll: 1.69101
+    pitch: 0.176488
+    yaw: 0.432721
+
+  internal_transform:
+    x: 0
+    y: 0.02
+    z: 0
+    roll: -1.570796
+    pitch: 0
+    yaw: -1.570796
+
+  camera_info:
+    width: 640
+    height: 480
+    fov_y: 0.78539816339 # pi / 4
