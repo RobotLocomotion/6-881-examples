@@ -19,7 +19,8 @@ class TestPointCloudToPoseSystem(unittest.TestCase):
 
         # create the PointCloudToPoseSystem
         config_file = "perception/config/sim.yml"
-        self.pc_to_pose = builder.AddSystem(PointCloudToPoseSystem(config_file))
+        self.pc_to_pose = builder.AddSystem(
+            PointCloudToPoseSystem(config_file, viz=False))
 
         # add systems to convert the depth images from ManipulationStation to
         # PointClouds

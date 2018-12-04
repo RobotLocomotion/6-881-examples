@@ -12,8 +12,9 @@ from pydrake.common.eigen_geometry import Isometry3
 import pydrake.perception as mut
 
 import meshcat.transformations as tf
-from optimization_based_point_cloud_registration import (
-    AlignSceneToModel, ThresholdArray)
+from perception_tools.optimization_based_point_cloud_registration import (
+    AlignSceneToModel)
+from perception_tools.visualization_utils import ThresholdArray
 from point_cloud_to_pose_system import PointCloudToPoseSystem
 
 
@@ -29,12 +30,12 @@ def SegmentFoamBrick(scene_points, scene_colors):
     """
 
     x_min = 0.2
-    x_max = 1.0
+    x_max = 0.71
 
     y_min = -0.4
     y_max = 0.4
 
-    z_min = -0.1
+    z_min = 0
     z_max = 0.1
 
     x_indices = ThresholdArray(scene_points[:, 0], x_min, x_max)
@@ -46,14 +47,14 @@ def SegmentFoamBrick(scene_points, scene_colors):
     table_points = scene_points[indices, :]
     table_colors = scene_colors[indices, :]
 
-    r_min = 0.2
+    r_min = 0
     r_max = 1
 
     g_min = 0
-    g_max = 0.15
+    g_max = 0.2
 
     b_min = 0
-    b_max = 0.15
+    b_max = 0.2
 
     r_indices = ThresholdArray(table_colors[:, 0], r_min, r_max)
     g_indices = ThresholdArray(table_colors[:, 1], g_min, g_max)
@@ -65,6 +66,7 @@ def SegmentFoamBrick(scene_points, scene_colors):
     brick_colors = table_colors[indices, :]
 
     return brick_points, brick_colors
+
 
 def GetFoamBrickPose(brick_points, brick_colors):
     """Finds a good 4x4 pose of the brick from the segmented points.
@@ -100,19 +102,20 @@ def GetFoamBrickPose(brick_points, brick_colors):
 
     return X_MS
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-      "--config_file",
-      required=True,
-      help="The path to a .yml camera config file")
-    args = parser.parse_args()
 
+def GetBrickPose(config_file, viz=False):
+    """Estimates the pose of the foam brick in a ManipulationStation setup.
+
+    @param config_file str. The path to a camera configuration file.
+    @param viz bool. If True, save point clouds to numpy arrays.
+
+    @return An Isometry3 representing the pose of the brick.
+    """  
     builder = DiagramBuilder()
 
     # create the PointCloudToPoseSystem
     pc_to_pose = builder.AddSystem(PointCloudToPoseSystem(
-        args.config_file, SegmentFoamBrick, GetFoamBrickPose))
+        config_file, viz, SegmentFoamBrick, GetFoamBrickPose))
 
     # realsense serial numbers are >> 100
     use_hardware = int(pc_to_pose.camera_configs["left_camera_serial"]) > 100
@@ -199,5 +202,20 @@ if __name__ == "__main__":
     context = diagram.GetMutableSubsystemContext(pc_to_pose,
                                      simulator.get_mutable_context())
 
-    # prints the pose of the brick, of type Isometry3
-    print pc_to_pose.GetOutputPort("X_WObject").Eval(context)
+    # returns the pose of the brick, of type Isometry3
+    return pc_to_pose.GetOutputPort("X_WObject").Eval(context)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+      "--config_file",
+      required=True,
+      help="The path to a .yml camera config file")
+    parser.add_argument(
+      "--viz",
+      action="store_true",
+      help="Save the aligned and segmented point clouds for visualization")
+    args = parser.parse_args()
+
+    print GetBrickPose(args.config_file, args.viz)

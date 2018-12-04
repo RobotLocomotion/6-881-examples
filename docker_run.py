@@ -48,7 +48,7 @@ if __name__=="__main__":
 
     # network settings
     if args.os == 'mac':
-        cmd += " -p 7000:7000 " # meshcat port
+        cmd += " -p 7000-7010:7000-7010 " # meshcat port
         cmd += " -p 8080:8080 " # jupyter notebook port
     elif args.os == 'linux':
         cmd += " --network=host " # use host machine's network. 

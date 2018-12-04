@@ -10,7 +10,7 @@ import meshcat.transformations as tf
 
 class PointCloudToPoseSystem(LeafSystem):
 
-    def __init__(self, config_file, segment_scene_function=None,
+    def __init__(self, config_file, viz=False, segment_scene_function=None,
                  get_pose_function=None):
         """
         A system that takes in 3 Drake PointClouds and ImageRgba8U from
@@ -21,6 +21,8 @@ class PointCloudToPoseSystem(LeafSystem):
 
         @param config_file str. A path to a .yml configuration file for the
             cameras.
+        @param viz bool. If True, save the aligned and segmented point clouds
+            as serialized numpy arrays.
         @param segment_scene_function A Python function that returns a subset of
             the scene point cloud. See self.SegmentScene for more details.
         @param get_pose_function A Python function that calculates a pose from a
@@ -63,6 +65,8 @@ class PointCloudToPoseSystem(LeafSystem):
         self.get_pose_function = get_pose_function
 
         self._LoadConfigFile(config_file)
+
+        self.viz = viz
 
     def _LoadConfigFile(self, config_file):
         with open(config_file, 'r') as stream:
@@ -148,12 +152,20 @@ class PointCloudToPoseSystem(LeafSystem):
             right_points = np.array(right_point_cloud.xyzs())
             right_colors = self._ConstructPointCloudColors(right_rgb_image)
 
+            if self.viz:
+                np.save("saved_point_clouds/left_points", left_points.T)
+                np.save("saved_point_clouds/left_colors", left_colors.T)
+                np.save("saved_point_clouds/middle_points", middle_points.T)
+                np.save("saved_point_clouds/middle_colors", middle_colors.T)
+                np.save("saved_point_clouds/right_points", right_points.T)
+                np.save("saved_point_clouds/right_colors", right_colors.T)
+
             return self._AlignPointClouds(left_points,
-                                            left_colors,
-                                            middle_points,
-                                            middle_colors,
-                                            right_points,
-                                            right_colors)
+                                          left_colors,
+                                          middle_points,
+                                          middle_colors,
+                                          right_points,
+                                          right_colors)
 
     def _ConstructPointCloudColors(self, rgb_image):
         colors = np.zeros((3, rgb_image.height() * rgb_image.width()))
@@ -240,6 +252,15 @@ class PointCloudToPoseSystem(LeafSystem):
         scene_points, scene_colors = self._ExtractPointCloud(context)
         segmented_scene_points, segmented_scene_colors = \
             self.SegmentScene(scene_points, scene_colors)
+
+        if self.viz:
+            np.save("saved_point_clouds/aligned_scene_points", scene_points)
+            np.save("saved_point_clouds/aligned_scene_colors", scene_colors)
+            np.save("saved_point_clouds/segmented_scene_points",
+                    segmented_scene_points)
+            np.save("saved_point_clouds/segmented_scene_colors",
+                    segmented_scene_colors)
+
         X_WObject = self.GetPose(segmented_scene_points, segmented_scene_colors)
 
         output.get_mutable_value().set_matrix(X_WObject)
