@@ -6,7 +6,7 @@ This repository contains a collection of tools for interacting with robots and c
 ## Pre-reqs
 In the root directory of this repository, run the following command in a terminal to build a docker image that includes Drake and denpendencies for PDDLStream:
 ```bash
-$ docker build -t mit6881 -f ubuntu16_04_mit6881.dockerfile .
+$ docker build -t mit6881 -f ubuntu16_04_mit6881.dockerfile --build-arg DRAKE_VERSION=20181203 .
 ``` 
 
 ## Use

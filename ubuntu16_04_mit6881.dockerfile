@@ -1,4 +1,5 @@
 FROM ubuntu:16.04
+ARG DRAKE_VERSION
 
 # Install packages
 RUN apt-get update && yes "Y" \
@@ -15,7 +16,7 @@ RUN pip install --upgrade pip
 RUN pip install --upgrade graphviz numpy meshcat jupyter timeout-decorator sklearn
 
 # Pull down Drake binaries
-RUN curl -o drake.tar.gz https://drake-packages.csail.mit.edu/drake/continuous/drake-latest-xenial.tar.gz && tar -xzf drake.tar.gz -C /opt
+RUN curl -o drake.tar.gz https://drake-packages.csail.mit.edu/drake/nightly/drake-${DRAKE_VERSION}-xenial.tar.gz && tar -xzf drake.tar.gz -C /opt
 
 # Install drake prereqs
 RUN apt-get update \
