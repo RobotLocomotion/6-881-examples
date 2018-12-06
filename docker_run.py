@@ -30,8 +30,8 @@ if __name__=="__main__":
     if args.os == 'linux':
         cmd = "xhost +local:root \n"
     elif args.os == 'mac':
-        IP = subprocess.check_output("echo $(ifconfig en0 | grep inet | awk '$1==\"inet\" {print $2}')", shell=True)[:-1]
-        cmd = "/usr/X11/bin/xhost + " + IP + "\n"
+        IP = subprocess.check_output("echo $(ifconfig en0 | grep inet | awk '$1==\"inet\" {print $2}')", shell=True)
+        cmd = "/usr/X11/bin/xhost + " + IP
     
     cmd += "docker run "
     if args.container:

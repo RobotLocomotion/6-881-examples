@@ -94,3 +94,26 @@ def PlotIiwaPositionLog(iiwa_position_command_log, iiwa_position_measured_log):
 
     plt.tight_layout()
     plt.show()
+
+def GetPlanStartingTimes(kuka_plans):
+    """
+    :param kuka_plans: a list of Plans.
+    :return: t_plan is a list of length (len(kuka_plans) + 1). t_plan[i] is the starting time of kuka_plans[i];
+        t_plan[-1] is the time at which the last plan ends.
+    """
+    num_plans = len(kuka_plans)
+    t_plan = np.zeros(num_plans + 1)
+    for i in range(0, num_plans):
+        t_plan[i + 1] = \
+            t_plan[i] + kuka_plans[i].get_duration()
+    print "Plan starting times(s)\n", t_plan
+    return t_plan
+
+def RenderSystemWithGraphviz(system, output_file="system_view.gz"):
+    """ Renders the Drake system (presumably a diagram,
+    otherwise this graph will be fairly trivial) using
+    graphviz to a specified file. """
+    from graphviz import Source
+    string = system.GetGraphvizString()
+    src = Source(string)
+    src.render(output_file, view=False)

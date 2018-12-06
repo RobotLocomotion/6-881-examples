@@ -5,7 +5,6 @@ from pydrake.common.eigen_geometry import Isometry3, Quaternion
 from pydrake.examples.manipulation_station import ManipulationStation
 from pydrake.multibody.multibody_tree.multibody_plant import MultibodyPlant
 from plan_utils import *
-import hashlib
 
 plan_type_strings = [
     "JointSpacePlan",
@@ -20,8 +19,7 @@ plan_type_strings = [
 
 PlanTypes = dict()
 for plan_types_string in plan_type_strings:
-    PlanTypes[plan_types_string] = hashlib.sha1(plan_types_string).hexdigest()
-
+    PlanTypes[plan_types_string] = plan_types_string
 
 
 class PlanBase:
@@ -32,17 +30,13 @@ class PlanBase:
         self.traj = trajectory
         self.traj_d = None
         self.duration = None
+        self.start_time = None
         if trajectory is not None:
             self.traj_d = trajectory.derivative(1)
             self.duration = trajectory.end_time()
 
-        self.start_time = None
-
     def get_duration(self):
         return self.duration
-
-    def set_start_time(self, time):
-        self.start_time = time
 
 
 class JointSpacePlan(PlanBase):
