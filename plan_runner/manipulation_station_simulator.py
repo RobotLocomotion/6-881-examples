@@ -72,7 +72,7 @@ class ManipulationStationSimulator:
 
         # Add plan runner.
         if is_plan_runner_diagram:
-            plan_runner = CreateManipStationPlanRunnerDiagram(
+            plan_runner, duration_multiplier = CreateManipStationPlanRunnerDiagram(
                 station=self.station,
                 kuka_plans=plan_list,
                 gripper_setpoint_list=gripper_setpoint_list)
@@ -81,6 +81,8 @@ class ManipulationStationSimulator:
                 station=self.station,
                 kuka_plans=plan_list,
                 gripper_setpoint_list=gripper_setpoint_list)
+            duration_multiplier = plan_runner.kPlanDurationMultiplier
+
         self.plan_runner = plan_runner
 
         builder.AddSystem(plan_runner)
@@ -174,7 +176,7 @@ class ManipulationStationSimulator:
         # calculate starting time for all plans.
         t_plan = GetPlanStartingTimes(plan_list)
         if sim_duration is None:
-            sim_duration = t_plan[-1] + extra_time
+            sim_duration = t_plan[-1]*duration_multiplier + extra_time
         print "simulation duration", sim_duration
         simulator.Initialize()
         simulator.StepTo(sim_duration)
@@ -204,7 +206,7 @@ class ManipulationStationSimulator:
 
         # Add plan runner.
         if is_plan_runner_diagram:
-            plan_runner = CreateManipStationPlanRunnerDiagram(
+            plan_runner, duration_multiplier = CreateManipStationPlanRunnerDiagram(
                 station=self.station,
                 kuka_plans=plan_list,
                 gripper_setpoint_list=gripper_setpoint_list,
@@ -215,6 +217,7 @@ class ManipulationStationSimulator:
                 kuka_plans=plan_list,
                 gripper_setpoint_list=gripper_setpoint_list,
                 print_period=0,)
+            duration_multiplier = plan_runner.kPlanDurationMultiplier
 
         builder.AddSystem(plan_runner)
         builder.Connect(plan_runner.GetOutputPort("gripper_setpoint"),
@@ -260,7 +263,7 @@ class ManipulationStationSimulator:
 
         t_plan = GetPlanStartingTimes(plan_list)
         if sim_duration is None:
-            sim_duration = t_plan[-1] + extra_time
+            sim_duration = t_plan[-1]*duration_multiplier + extra_time
 
         print "sending trajectories in 2 seconds..."
         time.sleep(1.0)

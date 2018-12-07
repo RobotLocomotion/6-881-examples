@@ -17,8 +17,8 @@ class TestOpenDoor(unittest.TestCase):
         # create a context of final state.
         x_final = data[:, -1]
         context = plant.CreateDefaultContext()
-        x_mutalbe = tree.GetMutablePositionsAndVelocities(context)
-        x_mutalbe[:] = x_final
+        x_mutable = tree.GetMutablePositionsAndVelocities(context)
+        x_mutable[:] = x_final
 
         # cupboard must be open.
         hinge_joint = plant.GetJointByName("left_door_hinge")

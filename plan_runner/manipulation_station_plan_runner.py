@@ -105,6 +105,8 @@ class ManipStationPlanRunner(LeafSystem):
             self._DeclareVectorOutputPort(
                 "force_limit", BasicVector(1), self._CalcForceLimitOutput)
 
+        self.kPlanDurationMultiplier = 1.1
+
     def _GetCurrentPlan(self, context):
         t = context.get_time()
 
@@ -115,7 +117,7 @@ class ManipStationPlanRunner(LeafSystem):
             self.current_gripper_setpoint = self.gripper_setpoint_list.pop(0)
             self.current_plan_start_time = 0.
         else:
-            if t - self.current_plan_start_time >= self.current_plan.duration:
+            if t - self.current_plan_start_time >= self.current_plan.duration * self.kPlanDurationMultiplier:
                 if len(self.kuka_plans_list) > 0:
                     self.current_plan = self.kuka_plans_list.pop(0)
                     self.current_gripper_setpoint = self.gripper_setpoint_list.pop(0)
@@ -128,7 +130,8 @@ class ManipStationPlanRunner(LeafSystem):
                 self.current_plan_start_time = t
                 self.current_plan_idx += 1
                 print 'Running plan %d' % self.current_plan_idx + " (type: " + self.current_plan.type + \
-                      "), starting at %f for a duration of: %f seconds." % (t, self.current_plan.duration) + "\n"
+                      "), starting at %f for a duration of %f seconds." % \
+                      (t, self.current_plan.duration*self.kPlanDurationMultiplier) + "\n"
 
     def _CalcIiwaCommand(self, context, y_data):
         self._GetCurrentPlan(context)

@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<sdf version='1.6'>
+<model name="plane">
+  <link name="base_link">
+    <visual name='plane_visual'>
+      <pose frame=''>0 0 0 0 0 0</pose>
+      <geometry>
+        <box>
+          <!--size>1.220 0.762 0.02</size-->
+          <!--size>0.964 0.779 0.037</size-->
+          <size>0.96 0.701 0.037</size>
+        </box>
+      </geometry>
+      <material>
+        <diffuse>0 0 0 0.5</diffuse>
+      </material>
+    </visual>
+
+    <collision name='plane_collision'>
+      <pose frame=''>0 0 0 0 0 0</pose>
+      <geometry>
+        <box>
+          <!--size>1.220 0.762 0.02</size-->
+          <!--size>0.964 0.779 0.037</size-->
+          <size>0.96 0.701 0.037</size>
+        </box>
+      </geometry>
+    </collision>
+
+   </link>
+</model>
+</sdf>

@@ -7,3 +7,6 @@
 *.pdf
 *.gz
 perception/saved_point_clouds/*.npy
+*.npy
+statistics/
+temp/
