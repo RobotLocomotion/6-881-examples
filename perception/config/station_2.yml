@@ -20,10 +20,10 @@ left_camera:
   camera_info:
     width: 848
     height: 480
-    focal_x: 0
-    focal_y: 0
-    center_x: 0
-    center_y: 0
+    focal_x: 639.036
+    focal_y: 639.036
+    center_x: 425.131
+    center_y: 244.165
 
 middle_camera:
   serial_no: 802212061325
@@ -47,10 +47,10 @@ middle_camera:
   camera_info:
     width: 848
     height: 480
-    focal_x: 0
-    focal_y: 0
-    center_x: 0
-    center_y: 0
+    focal_x: 626.633
+    focal_y: 626.633
+    center_x: 432.041
+    center_y: 245.465
 
 right_camera:
   serial_no: 816612062437
@@ -74,7 +74,8 @@ right_camera:
   camera_info:
     width: 848
     height: 480
-    focal_x: 0
-    focal_y: 0
-    center_x: 0
-    center_y: 0
+    focal_x: 625.125
+    focal_y: 625.125
+    center_x: 402.432
+    center_y: 218.671
+
