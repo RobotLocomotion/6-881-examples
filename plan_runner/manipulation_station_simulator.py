@@ -31,7 +31,7 @@ class ManipulationStationSimulator:
 
         # Finalize manipulation station by adding manipuland.
         self.station = ManipulationStation(self.time_step)
-        self.station.AddCupboard()
+        self.station.SetupDefaultStation()
         self.plant = self.station.get_mutable_multibody_plant()
         if object_file_path is not None:
             self.object = AddModelFromSdfFile(

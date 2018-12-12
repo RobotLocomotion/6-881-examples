@@ -18,10 +18,12 @@ def ConnectPointsWithCubicPolynomial(x_start, x_end, duration):
     return  PiecewisePolynomial.Cubic(
         t_knots, x_knots.T, np.zeros(n), np.zeros(n))
 
+
 '''
 Create an instance of ManipulationStation for kinematic and dynamic calculations. 
 '''
 station = ManipulationStation()
+station.SetupDefaultStation()
 station.Finalize()
 
 

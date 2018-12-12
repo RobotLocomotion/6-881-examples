@@ -15,6 +15,7 @@ class TestPointCloudToPoseSystem(unittest.TestCase):
         builder = DiagramBuilder()
 
         station = builder.AddSystem(ManipulationStation())
+        station.SetupDefaultStation()
         station.Finalize()
 
         # create the PointCloudToPoseSystem

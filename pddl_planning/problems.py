@@ -218,10 +218,10 @@ def load_station(time_step=0.0, **kwargs):
 ##################################################
 
 def load_dope(time_step=0.0, dope_path=DOPE_PATH, goal_name='soup', is_visualizing=True, **kwargs):
-    station = ManipulationStation(time_step, IiwaCollisionModel.kBoxCollision)
+    station = ManipulationStation(time_step)
+    station.SetupDefaultStation(IiwaCollisionModel.kBoxCollision)
     plant = station.get_mutable_multibody_plant()
     scene_graph = station.get_mutable_scene_graph()
-    station.AddCupboard()
     robot = plant.GetModelInstanceByName('iiwa')
     gripper = plant.GetModelInstanceByName('gripper')
     cupboard = plant.GetModelInstanceByName('cupboard')

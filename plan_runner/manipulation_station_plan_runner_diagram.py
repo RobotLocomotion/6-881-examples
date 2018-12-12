@@ -1,11 +1,7 @@
 import numpy as np
 import sys
 
-from pydrake.all import (
-    BasicVector,
-    PortDataType,
-)
-from pydrake.systems.framework import Diagram, AbstractValue, LeafSystem, DiagramBuilder
+from pydrake.systems.framework import Diagram, AbstractValue, LeafSystem, DiagramBuilder, BasicVector, PortDataType
 from plan_runner.robot_plans import *
 from plan_runner.open_left_door_plans import *
 

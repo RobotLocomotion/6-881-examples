@@ -7,7 +7,8 @@ from collections import namedtuple
 from itertools import product
 
 from drake import lcmt_viewer_load_robot
-from pydrake.all import (Quaternion, RigidTransform, RotationMatrix)
+from pydrake.math import RigidTransform, RotationMatrix
+from pydrake.common.eigen_geometry import Quaternion
 from pydrake.geometry import DispatchLoadMessage
 from pydrake.lcm import DrakeMockLcm
 from pydrake.math import RollPitchYaw

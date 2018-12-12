@@ -1,16 +1,7 @@
 import numpy as np
 import sys
 
-from pydrake.all import (
-    BasicVector,
-    LeafSystem,
-    PortDataType,
-)
-
-from pydrake.trajectories import (
-    PiecewisePolynomial
-)
-from pydrake.math import RollPitchYaw
+from pydrake.systems.framework import BasicVector, LeafSystem, PortDataType
 
 from plan_runner.robot_plans import *
 from plan_runner.open_left_door_plans import *
