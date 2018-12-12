@@ -38,6 +38,12 @@ class PlanBase:
     def get_duration(self):
         return self.duration
 
+    def CalcPositionCommand(self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period):
+        return q_iiwa
+
+    def CalcTorqueCommand(self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period):
+        return np.zeros(7)
+
 
 class JointSpacePlan(PlanBase):
     def __init__(self,
@@ -45,6 +51,9 @@ class JointSpacePlan(PlanBase):
         PlanBase.__init__(self,
                           type=PlanTypes["JointSpacePlan"],
                           trajectory=trajectory)
+
+    def CalcPositionCommand(self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period):
+        return self.traj.value(t_plan).flatten()
 
 '''
 The robot goes to q_target from its configuration when this plan starts. 
@@ -61,6 +70,11 @@ class JointSpacePlanGoToTarget(PlanBase):
         self.traj = ConnectPointsWithCubicPolynomial(
             q_start, self.q_target, self.duration)
         self.traj_d = self.traj.derivative(1)
+
+    def CalcPositionCommand(self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period):
+        if self.traj is None:
+            self.UpdateTrajectory(q_start=q_iiwa)
+        return self.traj.value(t_plan).flatten()
 
 
 '''
@@ -81,53 +95,77 @@ class JointSpacePlanRelative(PlanBase):
         self.traj_d = self.traj.derivative(1)
 
 
-X_EEa = GetEndEffectorWorldAlignedFrame()
-X_L7E = GetL7EeTransform()
 
-'''
-trajectory is a 3-dimensional PiecewisePolynomial. It describes the trajectory
-    of a point fixed to the ee frame in world frame, 
-    RELATIVE TO WHERE THE POINT IS AT THE BEGINNING OF THE PLAN.
-R_WE_ref is the fixed pose (RotationMatrix) of the end effector while it its origin moves along
-    the given trajectory. 
-the value of duration will be overwritten by trajectory.end_time() if trajectory
-    is a valid PiecewisePolynomial.
-The axes of L7 and Ea (End Effector World Frane Aligned) are actually aligned. 
-    So R_EaL7 is identity. 
-p_EQ: the point in frame L7 that tracks trajectory. Its default value is the origin of L7.
-'''
-class IiwaTaskSpacePlan(PlanBase):
-    def __init__(self,
-                 duration=None,
-                 trajectory=None,
-                 R_WEa_ref=None,
-                 p_EQ=np.zeros(3)):
-        self.xyz_offset = None
-
+class JacobianBasedPlan(PlanBase):
+    def __init__(self, plan_type, trajectory, Q_WL7_ref, p_L7Q):
         self.plant_iiwa = station.get_controller_plant()
         self.tree_iiwa =self.plant_iiwa.tree()
         self.context_iiwa = self.plant_iiwa.CreateDefaultContext()
         self.l7_frame = self.plant_iiwa.GetFrameByName('iiwa_link_7')
 
+        # Store EE rotation reference as a quaternion.
+        self.Q_WL7_ref = R_WL7_ref.ToQuaternion()
+        self.p_L7Q = p_L7Q
+
         PlanBase.__init__(self,
-                          type=PlanTypes["IiwaTaskSpacePlan"],
+                          type=plan_type,
                           trajectory=trajectory)
-        self.duration = duration
 
+        # data members updated by CalcKinematics
+        self.X_WL7 = None
+        self.p_WQ = None
+        self.Jv_WL7q = None
+
+    def CalcKinematics(self, q_iiwa, v_iiwa):
+        """
+        :param q_iiwa: robot configuration.
+        :param v_iiwa: robot velocity.
+        Updates the following data members:
+        - Jv_WL7q: geometric jacboain of point Q in frame L7.
+        - p_WQ: position of point Q in world frame.
+        - X_WL7: pose of frame L7 relative to world frame.
+        """
+        x_iiwa_mutable = \
+            self.tree_iiwa.GetMutablePositionsAndVelocities(self.context_iiwa)
+        x_iiwa_mutable[:7] = q_iiwa
+        x_iiwa_mutable[7:] = v_iiwa
+
+        # Pose of frame L7 in world frame
+        self.X_WL7 = self.tree_iiwa.CalcRelativeTransform(
+            self.context_iiwa, frame_A=self.plant_iiwa.world_frame(),
+            frame_B=self.l7_frame)
+
+        # Position of Q in world frame
+        self.p_WQ = self.X_WL7.multiply(self.p_L7Q)
+
+        # calculate Geometric jacobian (6 by 7 matrix) of point Q in frame L7.
+        self.Jv_WL7q = self.tree_iiwa.CalcFrameGeometricJacobianExpressedInWorld(
+            context=self.context_iiwa, frame_B=self.l7_frame,
+            p_BoFo_B=self.p_L7Q)
+
+
+class IiwaTaskSpacePlan(JacobianBasedPlan):
+    def __init__(self,
+                 xyz_traj,
+                 Q_WL7_ref,
+                 p_L7Q=np.zeros(3)):
+        """
+        @param xyz_traj (3-dimensional PiecewisePolynomial): desired trajectory of point Q in world frame,
+            RELATIVE TO ITS POSITION AT THE BEGINNING OF THE PLAN.
+        @param Q_WL7_ref (Quaternion): fixed orientation of the end effector while it its origin moves along
+            the given trajectory
+        @param p_L7Q: the point in frame L7 that tracks xyz_traj. Its default value is the origin of L7.
+        """
+        assert xyz_traj.rows() == 3
+        self.xyz_offset = None
         self.q_iiwa_previous = np.zeros(7)
-        if trajectory is not None and R_WEa_ref is not None:
-            assert trajectory.rows() == 3
-            assert np.allclose(self.duration, trajectory.end_time())
-            self.traj = trajectory
-            self.p_L7Q = X_L7E.multiply(p_EQ)
 
-            # L7 and Ea are already aligned.
-            # This is the identity matrix.
-            self.R_EaL7 = X_EEa.inverse().rotation().dot(X_L7E.inverse().rotation())
-
-            # Store EE rotation reference as a quaternion.
-            self.Q_WL7_ref = R_WEa_ref.ToQuaternion()
-            self.p_EQ = p_EQ
+        JacobianBasedPlan.__init__(
+            self,
+            plan_type=PlanTypes["IiwaTaskSpacePlan"],
+            trajectory=xyz_traj,
+            Q_WL7_ref=Q_WL7_ref,
+            p_L7Q=p_L7Q)
 
     def UpdateXyzOffset(self, xyz_offset):
         assert len(xyz_offset) == 3
@@ -136,27 +174,16 @@ class IiwaTaskSpacePlan(PlanBase):
     def CalcXyzReference(self, t_plan):
         return self.traj.value(t_plan).flatten() + self.xyz_offset
 
-    def CalcPositionCommand(self, t_plan, q_iiwa, control_period):
+    def CalcPositionCommand(self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period):
+        self.CalcKinematics(q_iiwa, v_iiwa)
+
+        if self.xyz_offset is None:
+            self.UpdateXyzOffset(self.p_WQ)
+
         if t_plan < self.duration * 2:
-            # Update context
-            x_iiwa_mutable = \
-                self.tree_iiwa.GetMutablePositionsAndVelocities(self.context_iiwa)
-            x_iiwa_mutable[:7] = q_iiwa
-
-            # calculate Geometric jacobian (6 by 7 matrix) of point Q in frame L7.
-            Jv_WL7q = self.tree_iiwa.CalcFrameGeometricJacobianExpressedInWorld(
-                context=self.context_iiwa, frame_B=self.l7_frame,
-                p_BoFo_B=self.p_L7Q)
-
-            # Pose of frame L7 in world frame
-            X_WL7 = self.tree_iiwa.CalcRelativeTransform(
-                self.context_iiwa, frame_A=self.plant_iiwa.world_frame(),
-                frame_B=self.l7_frame)
-
             # position and orientation errors.
-            p_WQ = X_WL7.multiply(self.p_L7Q)
-            err_xyz = self.CalcXyzReference(t_plan) - p_WQ
-            Q_WL7 = X_WL7.quaternion()
+            err_xyz = self.CalcXyzReference(t_plan) - self.p_WQ
+            Q_WL7 = self.X_WL7.quaternion()
             Q_L7L7r = Q_WL7.inverse().multiply(self.Q_WL7_ref)
 
             # first 3: angular velocity, last 3: translational velocity
@@ -170,7 +197,7 @@ class IiwaTaskSpacePlan(PlanBase):
             kp_rotation = np.array([20., 20, 20])
             v_ee_desired[0:3] = Q_WL7.multiply(kp_rotation * Q_L7L7r.xyz())
 
-            result = np.linalg.lstsq(Jv_WL7q, v_ee_desired, rcond=None)
+            result = np.linalg.lstsq(self.Jv_WL7q, v_ee_desired, rcond=None)
             qdot_desired = np.clip(result[0], -2, 2)
 
             self.q_iiwa_previous[:] = q_iiwa

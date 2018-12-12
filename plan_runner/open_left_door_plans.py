@@ -25,11 +25,13 @@ r_handle = np.linalg.norm(p_handle_2_hinge)
 theta0_hinge = np.arctan2(np.abs(p_handle_2_hinge[0]),
                           np.abs(p_handle_2_hinge[1]))
 
-# position of point Q in EE frame.  Point Q is fixed in the EE frame.
-p_EQ = GetEndEffectorWorldAlignedFrame().multiply(np.array([0., 0., 0.090]))
+# position of point Q in L7 frame.  Point Q is fixed w.r.t frame L7.
+# When the robot is upright (all joint angles = 0), axes of L7 are aligned with axes of world.
+# The origin of end effector frame (plant.GetFrameByName('body')) is located at [0, 0, 0.114] in frame L7.
+p_L7Q = np.array([0., 0., 0.090]) + np.array([0, 0, 0.114])
 
 # orientation of end effector aligned frame
-R_WEa_ref = RollPitchYaw(0, np.pi / 180 * 135, 0).ToRotationMatrix()
+R_WL7_ref = RollPitchYaw(0, np.pi / 180 * 135, 0).ToRotationMatrix()
 
 q_home = np.array([0, -0.2136, 0, -2.094, 0, 0.463, 0])
 q_pre_swing = np.array([2.44, 16.72, -17.43, -89.56, 47.30, 63.53, -83.77])*np.pi/180
@@ -37,16 +39,23 @@ q_post_swing = np.array([20.0, 16.72, -17.43, -89.56, 47.30, 63.53, -83.77])*np.
 
 
 
-class OpenLeftDoorPlan(PlanBase):
-    def __init__(self, angle_start, angle_end=np.pi/4, duration=10.0, type=None):
+class OpenLeftDoorPlan(JacobianBasedPlan):
+    def __init__(self, angle_start, angle_end, duration, R_WL7_ref, type):
         angle_traj = ConnectPointsWithCubicPolynomial(
             [angle_start], [angle_end], duration)
         # Axes of Ea and L7 are aligned.
-        self.Q_WL7_ref = R_WEa_ref.ToQuaternion()
+        self.Q_WL7_ref = R_WL7_ref.ToQuaternion()
 
-        PlanBase.__init__(self,
-                          type=type,
-                          trajectory=angle_traj)
+        JacobianBasedPlan.__init__(self,
+                                   plan_type=type,
+                                   trajectory=angle_traj,
+                                   R_WL7_ref=R_WL7_ref,
+
+                                   )
+
+
+
+
 
     def CalcKinematics(self, l7_frame, world_frame, tree_iiwa, context_iiwa, t_plan):
         """
@@ -60,7 +69,6 @@ class OpenLeftDoorPlan(PlanBase):
                 p_HrQ: position of point Q relative to frame Hr.
         """
         # calculate Geometric jacobian (6 by 7 matrix) of point Q in frame L7.
-        p_L7Q = X_L7E.multiply(p_EQ)
         Jv_WL7q = tree_iiwa.CalcFrameGeometricJacobianExpressedInWorld(
             context=context_iiwa, frame_B=l7_frame,
             p_BoFo_B=p_L7Q)
@@ -92,7 +100,7 @@ class OpenLeftDoorPlan(PlanBase):
         return Jv_WL7q, p_HrQ, Q_L7L7r, Q_WL7
 
 
-class OpenLeftDoorPositionPlan(OpenLeftDoorPlan):
+class OpenLeftDoorPositionPlan(PlanBase):
     def __init__(self, angle_start, angle_end=np.pi/4, duration=10.0):
         OpenLeftDoorPlan.__init__(
             self,
@@ -136,7 +144,7 @@ class OpenLeftDoorPositionPlan(OpenLeftDoorPlan):
         return np.zeros(7)
 
 
-class OpenLeftDoorImpedancePlan(OpenLeftDoorPlan):
+class OpenLeftDoorImpedancePlan(JacobianBasedPlan):
     def __init__(self, angle_start, angle_end=np.pi/4, duration=10.0):
         OpenLeftDoorPlan.__init__(
             self,

@@ -8,9 +8,12 @@ from plan_runner.open_left_door_plans import *
 
 
 class ManipStationPlanRunner(LeafSystem):
-    """
+    """ A drake system that sends commands to the robot and gripper by evaluating the currently
+    active Plan.
+
     The plan runner is constructed with a list of Plans (kuka_plans) and a list of gripper
     setpoints (gripper_setpoint_list).
+
     In its constructor, it adds two additional plans to kuka_plans for safety reasons:
     - The first plan holds the robot's current position for 3 seconds.
     - The second plan moves the robot from its current position, to the position at the beginning of
@@ -79,6 +82,11 @@ class ManipStationPlanRunner(LeafSystem):
             self._DeclareInputPort(
                 "iiwa_velocity", PortDataType.kVectorValued, 7)
 
+        # iiwa external torque input port
+        self.iiwa_external_torque_input_port = \
+            se.f._DeclareInputPort(
+                "iiwa_torque_external", PortDataType.kVectorValued, 7)
+
         # position and torque command output port
         # first 7 elements are position commands.
         # last 7 elements are torque commands.
@@ -130,40 +138,21 @@ class ManipStationPlanRunner(LeafSystem):
         t= context.get_time()
         q_iiwa = self.EvalVectorInput(
             context, self.iiwa_position_input_port.get_index()).get_value()
+        v_iiwa = self.EvalVectorInput(
+            context, self.iiwa_velocity_input_port.get_index()).get_value()
+        tau_iiwa = self.EvalVectorInput(
+            context, self.iiwa_external_torque_input_port.get_index()).get_value()
         t_plan = t - self.current_plan_start_time
+
         new_position_command = np.zeros(7)
-        new_position_command[:] = q_iiwa
         new_torque_command = np.zeros(7)
 
-        if self.current_plan.type == PlanTypes["JointSpacePlan"]:
-            new_position_command[:] = self.current_plan.traj.value(t_plan).flatten()
+        new_position_command[:] = \
+            self.current_plan.CalcPositionCommand(q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period)
+        new_torque_command[:] = \
+            self.current_plan.CalcTorqueCommand(q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period)
 
-        elif self.current_plan.type == PlanTypes["JointSpacePlanRelative"] or \
-                self.current_plan.type == PlanTypes["JointSpacePlanGoToTarget"]:
-            if self.current_plan.traj is None:
-                self.current_plan.UpdateTrajectory(q_start=q_iiwa)
-            new_position_command[:] = self.current_plan.traj.value(t_plan).flatten()
 
-        elif self.current_plan.type == PlanTypes["IiwaTaskSpacePlan"]:
-            if self.current_plan.xyz_offset is None:
-                # update self.context_iiwa
-                x_iiwa_mutable = \
-                    self.tree_iiwa.GetMutablePositionsAndVelocities(self.context_iiwa)
-                x_iiwa_mutable[:7] = q_iiwa
-
-                # Pose of frame L7 in world frame
-                X_WL7 = self.tree_iiwa.CalcRelativeTransform(
-                    self.context_iiwa, frame_A=self.plant_iiwa.world_frame(),
-                    frame_B=self.l7_frame)
-
-                # Position of Q in world frame
-                p_L7Q = X_L7E.multiply(p_EQ)
-                p_WQ = X_WL7.multiply(p_L7Q)
-
-                self.current_plan.UpdateXyzOffset(p_WQ)
-
-            new_position_command[:] = self.current_plan.CalcPositionCommand(
-                t_plan, q_iiwa, self.control_period)
 
         elif self.current_plan.type == PlanTypes["OpenLeftDoorImpedancePlan"] or \
                 self.current_plan.type == PlanTypes["OpenLeftDoorPositionPlan"]:
@@ -189,8 +178,8 @@ class ManipStationPlanRunner(LeafSystem):
                     t_plan, Jv_WL7q, p_HrQ, R_L7L7r, R_WL7)
 
         y = y_data.get_mutable_value()
-        y[:self.nu] = new_position_command[:]
-        y[self.nu:] = new_torque_command[:]
+        y[:self.nu] = new_position_command
+        y[self.nu:] = new_torque_command
 
         # print current simulation time
         if (self.print_period and
