@@ -38,7 +38,6 @@ q_pre_swing = np.array([2.44, 16.72, -17.43, -89.56, 47.30, 63.53, -83.77])*np.p
 q_post_swing = np.array([20.0, 16.72, -17.43, -89.56, 47.30, 63.53, -83.77])*np.pi/180
 
 
-
 class OpenLeftDoorPlan(JacobianBasedPlan):
     def __init__(self, angle_start, angle_end, duration, Q_WL7_ref, type):
         # angle is a function of time, which is stored as a trajectory in self.traj

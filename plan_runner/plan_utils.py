@@ -67,9 +67,9 @@ def PlotExternalTorqueLog(iiwa_external_torque_log):
     t = iiwa_external_torque_log.sample_times()
     for i, torque in enumerate(iiwa_external_torque_log.data()):
         ax = fig_external_torque.add_subplot(711 + i)
-        ax.plot(t, torque, label='torque_external@joint_%d' % (i + 1))
+        ax.plot(t, torque, label='joint_%d' % (i + 1))
         ax.set_xlabel("t(s)")
-        ax.set_ylabel("N/m")
+        ax.set_ylabel("Nm")
         ax.legend()
         ax.grid(True)
 
