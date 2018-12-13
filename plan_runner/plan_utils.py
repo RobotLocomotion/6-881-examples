@@ -1,9 +1,8 @@
-from pydrake.trajectories import PiecewisePolynomial
 import numpy as np
-from pydrake.util.eigen_geometry import Isometry3, Quaternion
-from pydrake.examples.manipulation_station import ManipulationStation
 import matplotlib.pyplot as plt
-
+from pydrake.common.eigen_geometry import Isometry3, Quaternion
+from pydrake.trajectories import PiecewisePolynomial
+from pydrake.examples.manipulation_station import ManipulationStation
 
 # Create a cubic polynomial that connects x_start and x_end.
 # x_start and x_end should be list or np arrays.

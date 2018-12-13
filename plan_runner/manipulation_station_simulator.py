@@ -73,12 +73,10 @@ class ManipulationStationSimulator:
         # Add plan runner.
         if is_plan_runner_diagram:
             plan_runner, duration_multiplier = CreateManipStationPlanRunnerDiagram(
-                station=self.station,
                 kuka_plans=plan_list,
                 gripper_setpoint_list=gripper_setpoint_list)
         else:
             plan_runner = ManipStationPlanRunner(
-                station=self.station,
                 kuka_plans=plan_list,
                 gripper_setpoint_list=gripper_setpoint_list)
             duration_multiplier = plan_runner.kPlanDurationMultiplier
@@ -90,7 +88,6 @@ class ManipulationStationSimulator:
                         self.station.GetInputPort("wsg_position"))
         builder.Connect(plan_runner.GetOutputPort("force_limit"),
                         self.station.GetInputPort("wsg_force_limit"))
-
 
         demux = builder.AddSystem(Demultiplexer(14, 7))
         builder.Connect(
@@ -104,6 +101,8 @@ class ManipulationStationSimulator:
                         plan_runner.GetInputPort("iiwa_position"))
         builder.Connect(self.station.GetOutputPort("iiwa_velocity_estimated"),
                         plan_runner.GetInputPort("iiwa_velocity"))
+        builder.Connect(self.station.GetOutputPort("iiwa_torque_external"),
+                        plan_runner.GetInputPort("iiwa_torque_external"))
 
         # Add meshcat visualizer
         if is_visualizing:
@@ -207,13 +206,11 @@ class ManipulationStationSimulator:
         # Add plan runner.
         if is_plan_runner_diagram:
             plan_runner, duration_multiplier = CreateManipStationPlanRunnerDiagram(
-                station=self.station,
                 kuka_plans=plan_list,
                 gripper_setpoint_list=gripper_setpoint_list,
                 print_period=0,)
         else:
             plan_runner = ManipStationPlanRunner(
-                station=self.station,
                 kuka_plans=plan_list,
                 gripper_setpoint_list=gripper_setpoint_list,
                 print_period=0,)
@@ -237,6 +234,8 @@ class ManipulationStationSimulator:
                         plan_runner.GetInputPort("iiwa_position"))
         builder.Connect(station_hardware.GetOutputPort("iiwa_velocity_estimated"),
                         plan_runner.GetInputPort("iiwa_velocity"))
+        builder.Connect(station_hardware.GetOutputPort("iiwa_torque_external"),
+                        plan_runner.GetInputPort("iiwa_torque_external"))
 
         # Add logger
         iiwa_position_command_log = LogOutput(demux.get_output_port(0), builder)

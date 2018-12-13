@@ -115,7 +115,7 @@ def GetHomeConfiguration(is_printing=True):
 
     ik_scene.AddOrientationConstraint(
         frameAbar=world_frame, R_AbarA=R_WL7_ref,
-        frameBbar=l7_frame, R_BbarB=R_EEa,
+        frameBbar=l7_frame, R_BbarB=RotationMatrix.Identity(),
         theta_bound=theta_bound)
 
     p_WQ0 = p_WQ_home
@@ -238,7 +238,7 @@ def AddOpenDoorFullyPlans(plan_list, gripper_setpoint_list):
             np.zeros(3), delta_xyz[i], xyz_durations[i])
         plan_list.append(IiwaTaskSpacePlan(
             xyz_traj=xyz_traj,
-            R_WL7_ref=R_WL7_ref,
+            Q_WL7_ref=R_WL7_ref.ToQuaternion(),
             p_L7Q=p_L7Q))
         gripper_setpoint_list.append(xyz_gripper_setpoint[i])
 
@@ -316,12 +316,14 @@ def GenerateOpenLeftDoorPlansByImpedanceOrPosition(
         plan_list.append(OpenLeftDoorImpedancePlan(
             angle_start=theta0_hinge,
             angle_end=handle_angle_end,
-            duration=open_door_duration))
+            duration=open_door_duration,
+            Q_WL7_ref=R_WL7_ref.ToQuaternion()))
     elif open_door_method == "Position":
         plan_list.append(OpenLeftDoorPositionPlan(
             angle_start=theta0_hinge,
             angle_end=handle_angle_end,
-            duration=open_door_duration))
+            duration=open_door_duration,
+            Q_WL7_ref=R_WL7_ref.ToQuaternion()))
     gripper_setpoint_list.append(gripper_setpoint_list[-1])
 
     if is_open_fully:

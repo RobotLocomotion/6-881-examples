@@ -39,7 +39,7 @@ class PlanBase:
         return self.duration
 
     def CalcPositionCommand(self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period):
-        return q_iiwa
+        pass
 
     def CalcTorqueCommand(self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period):
         return np.zeros(7)
@@ -94,6 +94,10 @@ class JointSpacePlanRelative(PlanBase):
             q_start, self.delta_q + q_start, self.duration)
         self.traj_d = self.traj.derivative(1)
 
+    def CalcPositionCommand(self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period):
+        if self.traj is None:
+            self.UpdateTrajectory(q_start=q_iiwa)
+        return self.traj.value(t_plan).flatten()
 
 
 class JacobianBasedPlan(PlanBase):
@@ -104,7 +108,7 @@ class JacobianBasedPlan(PlanBase):
         self.l7_frame = self.plant_iiwa.GetFrameByName('iiwa_link_7')
 
         # Store EE rotation reference as a quaternion.
-        self.Q_WL7_ref = R_WL7_ref.ToQuaternion()
+        self.Q_WL7_ref = Q_WL7_ref
         self.p_L7Q = p_L7Q
 
         PlanBase.__init__(self,
@@ -114,15 +118,17 @@ class JacobianBasedPlan(PlanBase):
         # data members updated by CalcKinematics
         self.X_WL7 = None
         self.p_WQ = None
+        self.Q_WL7=None
         self.Jv_WL7q = None
 
     def CalcKinematics(self, q_iiwa, v_iiwa):
         """
-        :param q_iiwa: robot configuration.
-        :param v_iiwa: robot velocity.
+        @param q_iiwa: robot configuration.
+        @param v_iiwa: robot velocity.
         Updates the following data members:
         - Jv_WL7q: geometric jacboain of point Q in frame L7.
         - p_WQ: position of point Q in world frame.
+        - Q_WL7: orientation of frame L7 in world frame as a quaternion.
         - X_WL7: pose of frame L7 relative to world frame.
         """
         x_iiwa_mutable = \
@@ -138,11 +144,21 @@ class JacobianBasedPlan(PlanBase):
         # Position of Q in world frame
         self.p_WQ = self.X_WL7.multiply(self.p_L7Q)
 
+        # Orientation of Q in world frame
+        self.Q_WL7 = self.X_WL7.quaternion()
+
         # calculate Geometric jacobian (6 by 7 matrix) of point Q in frame L7.
         self.Jv_WL7q = self.tree_iiwa.CalcFrameGeometricJacobianExpressedInWorld(
             context=self.context_iiwa, frame_B=self.l7_frame,
             p_BoFo_B=self.p_L7Q)
 
+    def CalcPositionError(self, t_plan):
+        pass
+
+    def CalcOrientationError(self, t_plan):
+        # must be called after calling CalcKinematics
+        Q_L7L7r = self.Q_WL7.inverse().multiply(self.Q_WL7_ref)
+        return Q_L7L7r
 
 class IiwaTaskSpacePlan(JacobianBasedPlan):
     def __init__(self,
@@ -171,8 +187,9 @@ class IiwaTaskSpacePlan(JacobianBasedPlan):
         assert len(xyz_offset) == 3
         self.xyz_offset = np.copy(xyz_offset)
 
-    def CalcXyzReference(self, t_plan):
-        return self.traj.value(t_plan).flatten() + self.xyz_offset
+    def CalcPositionError(self, t_plan):
+        # must be called after calling CalcKinematics
+        return self.traj.value(t_plan).flatten() + self.xyz_offset - self.p_WQ
 
     def CalcPositionCommand(self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period):
         self.CalcKinematics(q_iiwa, v_iiwa)
@@ -180,11 +197,10 @@ class IiwaTaskSpacePlan(JacobianBasedPlan):
         if self.xyz_offset is None:
             self.UpdateXyzOffset(self.p_WQ)
 
-        if t_plan < self.duration * 2:
+        if t_plan < self.duration:
             # position and orientation errors.
-            err_xyz = self.CalcXyzReference(t_plan) - self.p_WQ
-            Q_WL7 = self.X_WL7.quaternion()
-            Q_L7L7r = Q_WL7.inverse().multiply(self.Q_WL7_ref)
+            err_xyz = self.CalcPositionError(t_plan)
+            Q_L7L7r = self.CalcOrientationError(t_plan)
 
             # first 3: angular velocity, last 3: translational velocity
             v_ee_desired = np.zeros(6)
@@ -195,10 +211,10 @@ class IiwaTaskSpacePlan(JacobianBasedPlan):
 
             # Rotation
             kp_rotation = np.array([20., 20, 20])
-            v_ee_desired[0:3] = Q_WL7.multiply(kp_rotation * Q_L7L7r.xyz())
+            v_ee_desired[0:3] = self.Q_WL7.multiply(kp_rotation * Q_L7L7r.xyz())
 
             result = np.linalg.lstsq(self.Jv_WL7q, v_ee_desired, rcond=None)
-            qdot_desired = np.clip(result[0], -2, 2)
+            qdot_desired = np.clip(result[0], -1, 1)
 
             self.q_iiwa_previous[:] = q_iiwa
             return q_iiwa + qdot_desired * control_period

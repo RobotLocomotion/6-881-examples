@@ -2,7 +2,6 @@ import argparse
 import numpy as np
 
 from pydrake.common import FindResourceOrThrow
-
 from plan_runner.manipulation_station_simulator import ManipulationStationSimulator
 from plan_runner.manipulation_station_plan_runner import *
 from plan_runner.open_left_door import (GenerateOpenLeftDoorPlansByTrajectory,
