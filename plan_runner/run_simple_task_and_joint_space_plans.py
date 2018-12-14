@@ -1,11 +1,8 @@
 import argparse
 import numpy as np
-
-from pydrake.common import FindResourceOrThrow
 from plan_runner.manipulation_station_simulator import ManipulationStationSimulator
 from plan_runner.manipulation_station_plan_runner import *
-from plan_runner.open_left_door import (GenerateOpenLeftDoorPlansByTrajectory,
-                                        GenerateOpenLeftDoorPlansByImpedanceOrPosition,)
+from plan_runner.open_left_door import GenerateExampleJointAndTaskSpacePlans
 
 if __name__ == '__main__':
     # define command line arguments
@@ -14,14 +11,6 @@ if __name__ == '__main__':
         "--hardware", action='store_true',
         help="Use the ManipulationStationHardwareInterface instead of an "
              "in-process simulation.")
-    parser.add_argument(
-        "--open_fully", action='store_true',
-        help="Add additional plans to fully open the door after impedance/position plans.")
-    parser.add_argument(
-        "-c", "--controller", type=str, default="Trajectory",
-        choices=["Trajectory", "Impedance", "Position"],
-        help="Specify the controller used to open the door. Its value should be: "
-             "'Trajectory' (default), 'Impedance' or 'Position.")
     parser.add_argument(
         "--no_visualization", action="store_true", default=False,
         help="Turns off visualization")
@@ -32,22 +21,11 @@ if __name__ == '__main__':
     is_hardware = args.hardware
 
     # Construct simulator system.
-    object_file_path = FindResourceOrThrow(
-        "drake/examples/manipulation_station/models/061_foam_brick.sdf")
 
-    manip_station_sim = ManipulationStationSimulator(
-        time_step=2e-3,
-        object_file_path=object_file_path,
-        object_base_link_name="base_link",)
+    manip_station_sim = ManipulationStationSimulator(time_step=2e-3)
 
     # Generate plans.
-    plan_list = None
-    gripper_setpoint_list = None
-    if args.controller == "Trajectory":
-        plan_list, gripper_setpoint_list = GenerateOpenLeftDoorPlansByTrajectory()
-    elif args.controller == "Impedance" or args.controller == "Position":
-        plan_list, gripper_setpoint_list = GenerateOpenLeftDoorPlansByImpedanceOrPosition(
-            open_door_method=args.controller, is_open_fully=args.open_fully)
+    plan_list, gripper_setpoint_list = GenerateExampleJointAndTaskSpacePlans()
 
     # Run simulator (simulation or hardware).
     if is_hardware:

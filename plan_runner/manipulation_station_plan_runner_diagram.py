@@ -85,7 +85,7 @@ class PlanScheduler(LeafSystem):
 
 
 class IiwaController(LeafSystem):
-    def __init__(self, station, control_period=0.005, print_period=0.5):
+    def __init__(self, control_period=0.005, print_period=0.5):
         LeafSystem.__init__(self)
         self.set_name("Iiwa Controller")
 
@@ -117,6 +117,11 @@ class IiwaController(LeafSystem):
             self._DeclareInputPort(
                 "iiwa_velocity", PortDataType.kVectorValued, 7)
 
+        # iiwa external torque input port
+        self.iiwa_external_torque_input_port = \
+            self._DeclareInputPort(
+                "iiwa_torque_external", PortDataType.kVectorValued, 7)
+
         # plan abstract input port
         self.plan_input_port = \
             self._DeclareAbstractInputPort(
@@ -136,63 +141,19 @@ class IiwaController(LeafSystem):
             context, self.plan_input_port.get_index()).get_value()
         q_iiwa = self.EvalVectorInput(
             context, self.iiwa_position_input_port.get_index()).get_value()
+        v_iiwa = self.EvalVectorInput(
+            context, self.iiwa_velocity_input_port.get_index()).get_value()
+        tau_iiwa = self.EvalVectorInput(
+            context, self.iiwa_external_torque_input_port.get_index()).get_value()
         t_plan = t - self.current_plan.start_time
+
         new_position_command = np.zeros(7)
-        new_position_command[:] = q_iiwa
         new_torque_command = np.zeros(7)
 
-        if self.current_plan.type == PlanTypes["JointSpacePlan"]:
-            new_position_command[:] = self.current_plan.traj.value(t_plan).flatten()
-
-        elif self.current_plan.type == PlanTypes["JointSpacePlanRelative"] or \
-                self.current_plan.type == PlanTypes["JointSpacePlanGoToTarget"]:
-            if self.current_plan.traj is None:
-                self.current_plan.UpdateTrajectory(q_start=q_iiwa)
-            new_position_command[:] = self.current_plan.traj.value(t_plan).flatten()
-
-        elif self.current_plan.type == PlanTypes["IiwaTaskSpacePlan"]:
-            if self.current_plan.xyz_offset is None:
-                # update self.context_iiwa
-                x_iiwa_mutable = \
-                    self.tree_iiwa.GetMutablePositionsAndVelocities(self.context_iiwa)
-                x_iiwa_mutable[:7] = q_iiwa
-
-                # Pose of frame L7 in world frame
-                X_WL7 = self.tree_iiwa.CalcRelativeTransform(
-                    self.context_iiwa, frame_A=self.plant_iiwa.world_frame(),
-                    frame_B=self.l7_frame)
-
-                # Position of Q in world frame
-                p_L7Q = X_L7E.multiply(p_EQ)
-                p_WQ = X_WL7.multiply(p_L7Q)
-
-                self.current_plan.UpdateXyzOffset(p_WQ)
-
-            new_position_command[:] = self.current_plan.CalcPositionCommand(
-                t_plan, q_iiwa, self.control_period)
-
-        elif self.current_plan.type == PlanTypes["OpenLeftDoorImpedancePlan"] or \
-                self.current_plan.type == PlanTypes["OpenLeftDoorPositionPlan"]:
-            # update self.context_iiwa
-            x_iiwa_mutable = \
-                self.tree_iiwa.GetMutablePositionsAndVelocities(self.context_iiwa)
-            x_iiwa_mutable[:7] = q_iiwa
-
-            Jv_WL7q, p_HrQ, R_L7L7r, R_WL7 = self.current_plan.CalcKinematics(
-                l7_frame=self.l7_frame,
-                world_frame=self.plant_iiwa.world_frame(),
-                tree_iiwa=self.tree_iiwa, context_iiwa=self.context_iiwa,
-                t_plan=t_plan)
-
-            # compute commands
-            if self.current_plan.type == PlanTypes["OpenLeftDoorPositionPlan"]:
-                new_position_command[:] = self.current_plan.CalcPositionCommand(
-                    t_plan, q_iiwa, Jv_WL7q, p_HrQ, R_L7L7r, R_WL7, self.control_period)
-                new_torque_command[:] = self.current_plan.CalcTorqueCommand()
-            elif self.current_plan.type == PlanTypes["OpenLeftDoorImpedancePlan"]:
-                new_position_command[:] = self.current_plan.CalcPositionCommand(t_plan, q_iiwa)
-                new_torque_command[:] = self.current_plan.CalcTorqueCommand(
-                    t_plan, Jv_WL7q, p_HrQ, R_L7L7r, R_WL7)
+        new_position_command[:] = \
+            self.current_plan.CalcPositionCommand(q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period)
+        new_torque_command[:] = \
+            self.current_plan.CalcTorqueCommand(q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period)
 
         y = y_data.get_mutable_value()
         y[:self.nu] = new_position_command[:]
@@ -205,10 +166,10 @@ class IiwaController(LeafSystem):
             self.last_print_time = context.get_time()
 
 
-def CreateManipStationPlanRunnerDiagram(station, kuka_plans, gripper_setpoint_list, print_period=1.0):
+def CreateManipStationPlanRunnerDiagram(kuka_plans, gripper_setpoint_list, print_period=1.0):
     builder = DiagramBuilder()
 
-    iiwa_controller = IiwaController(station, print_period=print_period)
+    iiwa_controller = IiwaController(print_period=print_period)
     builder.AddSystem(iiwa_controller)
     plan_scheduler = PlanScheduler(kuka_plans, gripper_setpoint_list)
     builder.AddSystem(plan_scheduler)
@@ -220,6 +181,8 @@ def CreateManipStationPlanRunnerDiagram(station, kuka_plans, gripper_setpoint_li
                         "iiwa_position")
     builder.ExportInput(iiwa_controller.iiwa_velocity_input_port,
                         "iiwa_velocity")
+    builder.ExportInput(iiwa_controller.iiwa_external_torque_input_port,
+                        "iiwa_torque_external")
 
     builder.ExportOutput(iiwa_controller.iiwa_position_command_output_port,
                          "iiwa_position_and_torque_command")

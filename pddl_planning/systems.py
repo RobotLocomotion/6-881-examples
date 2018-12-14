@@ -6,7 +6,7 @@ def connect_plan_runner(builder, station, plan):
     plan_list, gripper_setpoints = plan
 
     # Add plan runner.
-    plan_runner = ManipStationPlanRunner(station, plan_list, gripper_setpoints)
+    plan_runner = ManipStationPlanRunner(plan_list, gripper_setpoints)
 
     builder.AddSystem(plan_runner)
     builder.Connect(plan_runner.hand_setpoint_output_port,
@@ -26,6 +26,8 @@ def connect_plan_runner(builder, station, plan):
                     plan_runner.iiwa_position_input_port)
     builder.Connect(station.GetOutputPort("iiwa_velocity_estimated"),
                     plan_runner.iiwa_velocity_input_port)
+    builder.Connect(station.GetOutputPort("iiwa_torque_external"),
+                    plan_runner.GetInputPort("iiwa_torque_external"))
 
     # Add logger
     iiwa_position_command_log = LogOutput(demux.get_output_port(0), builder)

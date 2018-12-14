@@ -48,8 +48,8 @@ class ManipulationStationSimulator:
         self.X_WObject = X_WObject
 
     def RunSimulation(self, plan_list, gripper_setpoint_list,
-                      extra_time=0, real_time_rate=1.0, q0_kuka=np.zeros(7), is_visualizing=True, sim_duration=None,
-                      is_plan_runner_diagram=False):
+                      extra_time=0, real_time_rate=1.0, q0_kuka=np.zeros(7), is_visualizing=True,
+                      sim_duration=None, is_plan_runner_diagram=False):
         """
         Constructs a Diagram that sends commands to ManipulationStation.
         @param plan_list: A list of Plans to be executed.
@@ -73,12 +73,10 @@ class ManipulationStationSimulator:
         # Add plan runner.
         if is_plan_runner_diagram:
             plan_runner, duration_multiplier = CreateManipStationPlanRunnerDiagram(
-                station=self.station,
                 kuka_plans=plan_list,
                 gripper_setpoint_list=gripper_setpoint_list)
         else:
             plan_runner = ManipStationPlanRunner(
-                station=self.station,
                 kuka_plans=plan_list,
                 gripper_setpoint_list=gripper_setpoint_list)
             duration_multiplier = plan_runner.kPlanDurationMultiplier
@@ -90,7 +88,6 @@ class ManipulationStationSimulator:
                         self.station.GetInputPort("wsg_position"))
         builder.Connect(plan_runner.GetOutputPort("force_limit"),
                         self.station.GetInputPort("wsg_force_limit"))
-
 
         demux = builder.AddSystem(Demultiplexer(14, 7))
         builder.Connect(
@@ -104,6 +101,8 @@ class ManipulationStationSimulator:
                         plan_runner.GetInputPort("iiwa_position"))
         builder.Connect(self.station.GetOutputPort("iiwa_velocity_estimated"),
                         plan_runner.GetInputPort("iiwa_velocity"))
+        builder.Connect(self.station.GetOutputPort("iiwa_torque_external"),
+                        plan_runner.GetInputPort("iiwa_torque_external"))
 
         # Add meshcat visualizer
         if is_visualizing:
@@ -190,8 +189,8 @@ class ManipulationStationSimulator:
         Constructs a Diagram that sends commands to ManipulationStationHardwareInterface.
         @param plan_list: A list of Plans to be executed.
         @param gripper_setpoint_list: A list of gripper setpoints. Each setpoint corresponds to a Plan.
-        @param sim_duration: the duration of simulation in seconds. If unset, it is set to the sum of the durations of all
-            plans in plan_list plus extra_time.
+        @param sim_duration: the duration of simulation in seconds. If unset, it is set to the sum of the durations of
+            all plans in plan_list plus extra_time.
         @param extra_time: the amount of time for which commands are sent, in addition to the duration of all plans.
         @param is_plan_runner_diagram: True: use the diagram version of PlanRunner; False: use the leaf version
             of PlanRunner.
@@ -207,13 +206,11 @@ class ManipulationStationSimulator:
         # Add plan runner.
         if is_plan_runner_diagram:
             plan_runner, duration_multiplier = CreateManipStationPlanRunnerDiagram(
-                station=self.station,
                 kuka_plans=plan_list,
                 gripper_setpoint_list=gripper_setpoint_list,
                 print_period=0,)
         else:
             plan_runner = ManipStationPlanRunner(
-                station=self.station,
                 kuka_plans=plan_list,
                 gripper_setpoint_list=gripper_setpoint_list,
                 print_period=0,)
@@ -237,6 +234,8 @@ class ManipulationStationSimulator:
                         plan_runner.GetInputPort("iiwa_position"))
         builder.Connect(station_hardware.GetOutputPort("iiwa_velocity_estimated"),
                         plan_runner.GetInputPort("iiwa_velocity"))
+        builder.Connect(station_hardware.GetOutputPort("iiwa_torque_external"),
+                        plan_runner.GetInputPort("iiwa_torque_external"))
 
         # Add logger
         iiwa_position_command_log = LogOutput(demux.get_output_port(0), builder)
