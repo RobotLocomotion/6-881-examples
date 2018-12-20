@@ -25,7 +25,6 @@ station = ManipulationStation()
 station.SetupDefaultStation()
 station.Finalize()
 
-
 '''
 Ea, or End_Effector_world_aligned is a frame fixed w.r.t the gripper.
 Ea has the same origin as the end effector's body frame, but
@@ -96,7 +95,7 @@ def PlotIiwaPositionLog(iiwa_position_command_log, iiwa_position_measured_log):
     plt.tight_layout()
     plt.show()
 
-def GetPlanStartingTimes(kuka_plans):
+def GetPlanStartingTimes(kuka_plans, duration_multiplier):
     """
     :param kuka_plans: a list of Plans.
     :return: t_plan is a list of length (len(kuka_plans) + 1). t_plan[i] is the starting time of kuka_plans[i];
@@ -107,8 +106,7 @@ def GetPlanStartingTimes(kuka_plans):
     for i in range(0, num_plans):
         t_plan[i + 1] = \
             t_plan[i] + kuka_plans[i].get_duration()
-    print "Plan starting times(s)\n", t_plan
-    return t_plan
+    return t_plan * duration_multiplier
 
 def RenderSystemWithGraphviz(system, output_file="system_view.gz"):
     """ Renders the Drake system (presumably a diagram,
@@ -118,3 +116,40 @@ def RenderSystemWithGraphviz(system, output_file="system_view.gz"):
     string = system.GetGraphvizString()
     src = Source(string)
     src.render(output_file, view=False)
+
+def PlotEeOrientationError(iiwa_position_measured_log, Q_WL7_ref, t_plan):
+    """ Plots the absolute value of rotation angle between frame L7 and its reference.
+    Q_WL7_ref is a quaternion of frame L7's reference orientation relative to world frame.
+    t_plan is the starting time of every plan. They are plotted as vertical dashed black lines.  
+    """
+    plant_iiwa = station.get_controller_plant()
+    tree_iiwa = plant_iiwa.tree()
+    context_iiwa = plant_iiwa.CreateDefaultContext()
+    l7_frame = plant_iiwa.GetFrameByName('iiwa_link_7')
+
+    t_sample = iiwa_position_measured_log.sample_times()
+    n = len(t_sample)
+    angle_error_abs = np.zeros(n - 1)
+    for i in range(1, n):
+        q_iiwa = iiwa_position_measured_log.data()[:, i]
+        x_iiwa_mutable = \
+            tree_iiwa.GetMutablePositionsAndVelocities(context_iiwa)
+        x_iiwa_mutable[:7] = q_iiwa
+
+        X_WL7 = tree_iiwa.CalcRelativeTransform(
+            context_iiwa, frame_A=plant_iiwa.world_frame(), frame_B=l7_frame)
+
+        Q_L7L7ref = X_WL7.quaternion().inverse().multiply(Q_WL7_ref)
+        angle_error_abs[i-1] = np.arccos(Q_L7L7ref.w()) * 2
+
+    fig = plt.figure(dpi=150)
+    ax = fig.add_subplot(111)
+    ax.axhline(0, linestyle='--', color='r')
+    for t in t_plan:
+        ax.axvline(t, linestyle='--', color='k')
+    ax.plot(t_sample[1:], angle_error_abs/np.pi*180)
+    ax.set_xlabel("t(s)")
+    ax.set_ylabel("abs angle error, degrees")
+
+    plt.tight_layout()
+    plt.show()

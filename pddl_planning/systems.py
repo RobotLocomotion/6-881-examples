@@ -15,22 +15,18 @@ def connect_plan_runner(builder, station, plan):
                     station.GetInputPort("wsg_force_limit"))
 
     demux = builder.AddSystem(Demultiplexer(14, 7))
-    builder.Connect(
-        plan_runner.GetOutputPort("iiwa_position_and_torque_command"),
-        demux.get_input_port(0))
-    builder.Connect(demux.get_output_port(0),
+    builder.Connect(plan_runner.GetOutputPort("gripper_setpoint"),
+                    station.GetInputPort("wsg_position"))
+    builder.Connect(plan_runner.GetOutputPort("force_limit"),
+                    station.GetInputPort("wsg_force_limit"))
+    builder.Connect(plan_runner.GetOutputPort("iiwa_position_command"),
                     station.GetInputPort("iiwa_position"))
-    builder.Connect(demux.get_output_port(1),
+    builder.Connect(plan_runner.GetOutputPort("iiwa_torque_command"),
                     station.GetInputPort("iiwa_feedforward_torque"))
-    builder.Connect(station.GetOutputPort("iiwa_position_measured"),
-                    plan_runner.iiwa_position_input_port)
-    builder.Connect(station.GetOutputPort("iiwa_velocity_estimated"),
-                    plan_runner.iiwa_velocity_input_port)
-    builder.Connect(station.GetOutputPort("iiwa_torque_external"),
-                    plan_runner.GetInputPort("iiwa_torque_external"))
 
     # Add logger
-    iiwa_position_command_log = LogOutput(demux.get_output_port(0), builder)
+    iiwa_position_command_log = LogOutput(
+        plan_runner.GetOutputPort("iiwa_position_command"), builder)
     iiwa_position_command_log._DeclarePeriodicPublish(0.005)
 
     iiwa_external_torque_log = LogOutput(

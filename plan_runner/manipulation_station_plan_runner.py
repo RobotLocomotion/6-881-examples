@@ -59,9 +59,6 @@ class ManipStationPlanRunner(LeafSystem):
         self.last_print_time = -print_period
         self.control_period = control_period
 
-        # Declare iiwa_position/torque_command publishing rate
-        self._DeclarePeriodicPublish(control_period)
-
         # iiwa position input port
         self.iiwa_position_input_port = \
             self._DeclareInputPort(
@@ -78,21 +75,27 @@ class ManipStationPlanRunner(LeafSystem):
                 "iiwa_torque_external", PortDataType.kVectorValued, 7)
 
         # position and torque command output port
-        # first 7 elements are position commands.
-        # last 7 elements are torque commands.
         self.iiwa_position_command_output_port = \
-            self._DeclareVectorOutputPort("iiwa_position_and_torque_command",
-                                          BasicVector(self.nu*2), self._CalcIiwaCommand)
+            self._DeclareVectorOutputPort("iiwa_position_command",
+                                          BasicVector(self.nu), self._CalcIiwaPositionCommand)
+        self.iiwa_torque_command_output_port = \
+            self._DeclareVectorOutputPort("iiwa_torque_command",
+                                          BasicVector(self.nu), self._CalcIiwaTorqueCommand)
 
-        # gripper control
-        self._DeclareDiscreteState(1)
-        self._DeclarePeriodicDiscreteUpdate(period_sec=0.1)
+        # gripper setpoint and torque limit
         self.hand_setpoint_output_port = \
             self._DeclareVectorOutputPort(
-                "gripper_setpoint", BasicVector(1), self._CalcHandSetpointOutput)
+                "gripper_setpoint", BasicVector(1), self._CalcGripperSetpointOutput)
         self.gripper_force_limit_output_port = \
             self._DeclareVectorOutputPort(
                 "force_limit", BasicVector(1), self._CalcForceLimitOutput)
+
+        # Declare command publishing rate
+        # state[0:7]: position command
+        # state[7:14]: torque command
+        # state[14]: gripper_setpoint
+        self._DeclareDiscreteState(self.nu*2 + 1)
+        self._DeclarePeriodicDiscreteUpdate(period_sec=self.control_period)
 
         self.kPlanDurationMultiplier = 1.1
 
@@ -123,7 +126,10 @@ class ManipStationPlanRunner(LeafSystem):
                       "), starting at %f for a duration of %f seconds." % \
                       (t, self.current_plan.duration*self.kPlanDurationMultiplier) + "\n"
 
-    def _CalcIiwaCommand(self, context, y_data):
+    def _DoCalcDiscreteVariableUpdates(self, context, events, discrete_state):
+        # Call base method to ensure we do not get recursion.
+        LeafSystem._DoCalcDiscreteVariableUpdates(self, context, events, discrete_state)
+
         self._GetCurrentPlan(context)
 
         t= context.get_time()
@@ -135,37 +141,37 @@ class ManipStationPlanRunner(LeafSystem):
             context, self.iiwa_external_torque_input_port.get_index()).get_value()
         t_plan = t - self.current_plan_start_time
 
-        new_position_command = np.zeros(7)
-        new_torque_command = np.zeros(7)
+        new_control_output = discrete_state.get_mutable_vector().get_mutable_value()
 
-        new_position_command[:] = \
+        new_control_output[0:self.nu] = \
             self.current_plan.CalcPositionCommand(q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period)
-        new_torque_command[:] = \
+        new_control_output[self.nu:2*self.nu] = \
             self.current_plan.CalcTorqueCommand(q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period)
-
-        y = y_data.get_mutable_value()
-        y[:self.nu] = new_position_command
-        y[self.nu:] = new_torque_command
+        new_control_output[14] = self.current_gripper_setpoint
 
         # print current simulation time
         if (self.print_period and
                 t - self.last_print_time >= self.print_period):
-            print "t: ", context.get_time()
-            self.last_print_time = context.get_time()
+            print "t: ", t
+            self.last_print_time = t
 
-    def _DoCalcDiscreteVariableUpdates(self, context, events, discrete_state):
-        # Call base method to ensure we do not get recursion.
-        LeafSystem._DoCalcDiscreteVariableUpdates(self, context, events, discrete_state)
-
-        new_state = discrete_state.get_mutable_vector().get_mutable_value()
-        # Close gripper after plan has been executed
-        new_state[:] = self.current_gripper_setpoint
-
-    def _CalcHandSetpointOutput(self, context, y_data):
+    def _CalcIiwaPositionCommand(self, context, y_data):
         state = context.get_discrete_state_vector().get_value()
         y = y_data.get_mutable_value()
         # Get the ith finger control output
-        y[:] = state[0]
+        y[:] = state[0:self.nu]
+
+    def _CalcIiwaTorqueCommand(self, context, y_data):
+        state = context.get_discrete_state_vector().get_value()
+        y = y_data.get_mutable_value()
+        # Get the ith finger control output
+        y[:] = state[self.nu:2*self.nu]
+
+    def _CalcGripperSetpointOutput(self, context, y_data):
+        state = context.get_discrete_state_vector().get_value()
+        y = y_data.get_mutable_value()
+        # Get the ith finger control output
+        y[:] = state[14]
 
     def _CalcForceLimitOutput(self, context, output):
         output.SetAtIndex(0, 15.0)

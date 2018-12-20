@@ -50,7 +50,7 @@ class TestOpenDoor(unittest.TestCase):
             # Create simulator
             manip_station_sim = ManipulationStationSimulator(time_step=2e-3)
             iiwa_position_command_log, iiwa_position_measured_log, iiwa_external_torque_log, \
-                plant_state_log = manip_station_sim.RunSimulation(
+                plant_state_log, t_plan = manip_station_sim.RunSimulation(
                     plan_list, gripper_setpoint_list,
                     extra_time=2.0, real_time_rate=0.0, q0_kuka=self.q0, is_visualizing=False,
                     is_plan_runner_diagram=is_plan_runner_diagram)
@@ -73,7 +73,7 @@ class TestOpenDoor(unittest.TestCase):
                 # Make a copy of the initial position of the plans passed to PlanRunner.
                 q_iiwa_beginning = plan_list[0].traj.value(0).flatten()
                 iiwa_position_command_log, iiwa_position_measured_log, iiwa_external_torque_log, \
-                    plant_state_log = manip_station_sim.RunSimulation(
+                    plant_state_log, t_plan = manip_station_sim.RunSimulation(
                         plan_list, gripper_setpoint_list,
                         extra_time=2.0, real_time_rate=0.0, q0_kuka=self.q0, is_visualizing=False,
                         is_plan_runner_diagram=is_plan_runner_diagram)

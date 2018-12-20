@@ -10,7 +10,6 @@ from pydrake.systems.analysis import Simulator
 from pydrake.common.eigen_geometry import Isometry3
 from pydrake.systems.primitives import Demultiplexer, LogOutput
 
-
 from underactuated.meshcat_visualizer import MeshcatVisualizer
 # from pydrake.systems.meshcat_visualizer import MeshcatVisualizer
 from plan_runner.manipulation_station_plan_runner import ManipStationPlanRunner
@@ -88,15 +87,11 @@ class ManipulationStationSimulator:
                         self.station.GetInputPort("wsg_position"))
         builder.Connect(plan_runner.GetOutputPort("force_limit"),
                         self.station.GetInputPort("wsg_force_limit"))
-
-        demux = builder.AddSystem(Demultiplexer(14, 7))
-        builder.Connect(
-            plan_runner.GetOutputPort("iiwa_position_and_torque_command"),
-            demux.get_input_port(0))
-        builder.Connect(demux.get_output_port(0),
+        builder.Connect(plan_runner.GetOutputPort("iiwa_position_command"),
                         self.station.GetInputPort("iiwa_position"))
-        builder.Connect(demux.get_output_port(1),
+        builder.Connect(plan_runner.GetOutputPort("iiwa_torque_command"),
                         self.station.GetInputPort("iiwa_feedforward_torque"))
+
         builder.Connect(self.station.GetOutputPort("iiwa_position_measured"),
                         plan_runner.GetInputPort("iiwa_position"))
         builder.Connect(self.station.GetOutputPort("iiwa_velocity_estimated"),
@@ -108,8 +103,8 @@ class ManipulationStationSimulator:
         if is_visualizing:
             scene_graph = self.station.get_mutable_scene_graph()
             viz = MeshcatVisualizer(scene_graph,
-                                    is_drawing_contact_force = True,
-                                    plant = self.plant)
+                                    is_drawing_contact_force=True,
+                                    plant=self.plant)
             builder.AddSystem(viz)
             builder.Connect(self.station.GetOutputPort("pose_bundle"),
                             viz.GetInputPort("lcm_visualization"))
@@ -117,7 +112,8 @@ class ManipulationStationSimulator:
                             viz.GetInputPort("contact_results"))
 
         # Add logger
-        iiwa_position_command_log = LogOutput(demux.get_output_port(0), builder)
+        iiwa_position_command_log = LogOutput(
+            plan_runner.GetOutputPort("iiwa_position_command"), builder)
         iiwa_position_command_log._DeclarePeriodicPublish(0.005)
 
         iiwa_external_torque_log = LogOutput(
@@ -137,7 +133,7 @@ class ManipulationStationSimulator:
         if is_visualizing:
             viz.load()
             time.sleep(2.0)
-            # RenderSystemWithGraphviz(diagram)
+            RenderSystemWithGraphviz(diagram)
 
         # construct simulator
         simulator = Simulator(diagram)
@@ -173,15 +169,18 @@ class ManipulationStationSimulator:
         simulator.set_target_realtime_rate(real_time_rate)
 
         # calculate starting time for all plans.
-        t_plan = GetPlanStartingTimes(plan_list)
+        t_plan = GetPlanStartingTimes(plan_list, duration_multiplier)
         if sim_duration is None:
-            sim_duration = t_plan[-1]*duration_multiplier + extra_time
+            sim_duration = t_plan[-1] + extra_time
         print "simulation duration", sim_duration
+        print "plan starting times\n", t_plan
+
         simulator.Initialize()
+        self.SetInitialPlanRunnerState(plan_runner, simulator, diagram)
         simulator.StepTo(sim_duration)
 
         return iiwa_position_command_log, iiwa_position_measured_log, \
-            iiwa_external_torque_log, plant_state_log
+            iiwa_external_torque_log, plant_state_log, t_plan
 
     def RunRealRobot(self, plan_list, gripper_setpoint_list, sim_duration=None, extra_time=2.0,
                      is_plan_runner_diagram=False,):
@@ -221,15 +220,11 @@ class ManipulationStationSimulator:
                         station_hardware.GetInputPort("wsg_position"))
         builder.Connect(plan_runner.GetOutputPort("force_limit"),
                         station_hardware.GetInputPort("wsg_force_limit"))
-
-        demux = builder.AddSystem(Demultiplexer(14, 7))
-        builder.Connect(
-            plan_runner.GetOutputPort("iiwa_position_and_torque_command"),
-            demux.get_input_port(0))
-        builder.Connect(demux.get_output_port(0),
+        builder.Connect(plan_runner.GetOutputPort("iiwa_position_command"),
                         station_hardware.GetInputPort("iiwa_position"))
-        builder.Connect(demux.get_output_port(1),
+        builder.Connect(plan_runner.GetOutputPort("iiwa_torque_command"),
                         station_hardware.GetInputPort("iiwa_feedforward_torque"))
+
         builder.Connect(station_hardware.GetOutputPort("iiwa_position_measured"),
                         plan_runner.GetInputPort("iiwa_position"))
         builder.Connect(station_hardware.GetOutputPort("iiwa_velocity_estimated"),
@@ -238,12 +233,17 @@ class ManipulationStationSimulator:
                         plan_runner.GetInputPort("iiwa_torque_external"))
 
         # Add logger
-        iiwa_position_command_log = LogOutput(demux.get_output_port(0), builder)
+        iiwa_position_command_log = LogOutput(
+            plan_runner.GetOutputPort("iiwa_position_command"), builder)
         iiwa_position_command_log._DeclarePeriodicPublish(0.005)
 
         iiwa_position_measured_log = LogOutput(
             station_hardware.GetOutputPort("iiwa_position_measured"), builder)
         iiwa_position_measured_log._DeclarePeriodicPublish(0.005)
+
+        iiwa_velocity_estimated_log = LogOutput(
+            station_hardware.GetOutputPort("iiwa_velocity_estimated"), builder)
+        iiwa_velocity_estimated_log._DeclarePeriodicPublish(0.005)
 
         iiwa_external_torque_log = LogOutput(
             station_hardware.GetOutputPort("iiwa_torque_external"), builder)
@@ -260,16 +260,40 @@ class ManipulationStationSimulator:
         simulator.set_target_realtime_rate(1.0)
         simulator.set_publish_every_time_step(False)
 
-        t_plan = GetPlanStartingTimes(plan_list)
+        t_plan = GetPlanStartingTimes(plan_list, duration_multiplier)
         if sim_duration is None:
-            sim_duration = t_plan[-1]*duration_multiplier + extra_time
+            sim_duration = t_plan[-1] + extra_time
+        print "simulation duration", sim_duration
+        print "plan starting times\n", t_plan
 
         print "sending trajectories in 2 seconds..."
         time.sleep(1.0)
         print "sending trajectories in 1 second..."
         time.sleep(1.0)
         print "sending trajectories now!"
+
+        simulator.Initialize()
+        self.SetInitialPlanRunnerState(plan_runner, simulator, diagram)
         simulator.StepTo(sim_duration)
 
-        return iiwa_position_command_log, \
-               iiwa_position_measured_log, iiwa_external_torque_log
+        return iiwa_position_command_log, iiwa_position_measured_log, \
+               iiwa_velocity_estimated_log, iiwa_external_torque_log, t_plan
+
+    def SetInitialPlanRunnerState(self, plan_runner, simulator, diagram):
+        """
+        Sets iiwa_position_command, part of the discrete state of plan_runner,
+            to the initial state of the robot at t=0.
+        Otherwise the position command at t=0 is 0, driving the robot to its upright position, usually
+            resulting in huge velocity.
+        Calling this function after simulator.Initialize() puts a column of zeros at the beginning of
+            iiwa_position_command_log, but that zero command doesn't seem to be sent to the robot.
+        TODO: turning off publishing at initialization should remove those zeros, but the findings for
+            that function doesn't exist yet.
+        """
+        plan_runner_context = \
+            diagram.GetMutableSubsystemContext(plan_runner, simulator.get_mutable_context())
+        iiwa_position_input_port = plan_runner.GetInputPort("iiwa_position")
+        q0_iiwa = plan_runner.EvalVectorInput(
+            plan_runner_context, iiwa_position_input_port.get_index()).get_value()
+        for i in range(7):
+            plan_runner_context.get_mutable_discrete_state(0).SetAtIndex(i, q0_iiwa[i])

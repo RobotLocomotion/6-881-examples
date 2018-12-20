@@ -85,7 +85,7 @@ class TestPDDLPlanning(unittest.TestCase):
         q_iiwa_beginning = plan_list[0].traj.value(0).flatten()
 
         iiwa_position_command_log, iiwa_position_measured_log, iiwa_external_torque_log, \
-            plant_state_log = \
+            plant_state_log, t_plan = \
             self.manip_station_sim.RunSimulation(plan_list, gripper_setpoints,
                                             extra_time=2.0, real_time_rate=0.0,
                                             q0_kuka=self.q0, is_visualizing=False)
@@ -116,7 +116,7 @@ class TestPDDLPlanning(unittest.TestCase):
         q_iiwa_beginning = plan_list[0].traj.value(0).flatten()
 
         iiwa_position_command_log, iiwa_position_measured_log, iiwa_external_torque_log, \
-            plant_state_log = \
+            plant_state_log, t_plan = \
             self.manip_station_sim.RunSimulation(plan_list, gripper_setpoints,
                                             extra_time=2.0, real_time_rate=0.0,
                                             q0_kuka=self.q0, is_visualizing=False)

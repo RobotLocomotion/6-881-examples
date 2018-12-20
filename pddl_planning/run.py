@@ -257,7 +257,7 @@ def main():
 
     if args.execute:
         raw_input('Execute on hardware?')
-        iiwa_position_command_log, iiwa_position_measured_log, iiwa_external_torque_log = \
+        iiwa_position_command_log, iiwa_position_measured_log, iiwa_external_torque_log, t_plan = \
             manip_station_sim.RunRealRobot(plan_list, gripper_setpoints)
         #PlotExternalTorqueLog(iiwa_external_torque_log)
         #PlotIiwaPositionLog(iiwa_position_command_log, iiwa_position_measured_log)
@@ -265,7 +265,7 @@ def main():
         raw_input('Execute in simulation?')
         q0 = [0, 0, 0, -1.75, 0, 1.0, 0]
         iiwa_position_command_log, iiwa_position_measured_log, iiwa_external_torque_log, \
-            plant_state_log = \
+            plant_state_log, t_plan = \
             manip_station_sim.RunSimulation(plan_list, gripper_setpoints,
                                             extra_time=2.0, real_time_rate=1.0, q0_kuka=q0)
         #PlotExternalTorqueLog(iiwa_external_torque_log)

@@ -7,7 +7,7 @@ from plan_runner.open_left_door_plans import *
 
 
 class PlanScheduler(LeafSystem):
-    def __init__(self, kuka_plans, gripper_setpoint_list, update_period=0.05):
+    def __init__(self, kuka_plans, gripper_setpoint_list):
         LeafSystem.__init__(self)
         self.set_name("Plan Scheduler")
 
@@ -29,7 +29,7 @@ class PlanScheduler(LeafSystem):
         self.kuka_plans_list = kuka_plans
 
         self.current_plan = None
-        self.current_gripper_setpoint = None
+        self.current_gripper_setpoint = gripper_setpoint_list[0]
         self.current_plan_idx = 0
 
         # Output ports for plans and gripper setpoints
@@ -38,14 +38,13 @@ class PlanScheduler(LeafSystem):
             lambda: AbstractValue.Make(PlanBase()),
             self._GetCurrentPlan)
 
-        self.hand_setpoint_output_port = \
+        self.gripper_setpoint_output_port = \
             self._DeclareVectorOutputPort(
-                "gripper_setpoint", BasicVector(1), self._CalcHandSetpointOutput)
+                "gripper_setpoint", BasicVector(1), self._CalcGripperSetpointOutput)
         self.gripper_force_limit_output_port = \
             self._DeclareVectorOutputPort(
                 "force_limit", BasicVector(1), self._CalcForceLimitOutput)
 
-        self._DeclarePeriodicPublish(update_period)
         self.kPlanDurationMultiplier = 1.1
 
     def _GetCurrentPlan(self, context, y_data):
@@ -75,7 +74,7 @@ class PlanScheduler(LeafSystem):
 
         y_data.set_value(self.current_plan)
 
-    def _CalcHandSetpointOutput(self, context, y_data):
+    def _CalcGripperSetpointOutput(self, context, y_data):
         y = y_data.get_mutable_value()
         # Get the ith finger control output
         y[:] = self.current_gripper_setpoint
@@ -104,9 +103,6 @@ class IiwaController(LeafSystem):
         self.context_iiwa = self.plant_iiwa.CreateDefaultContext()
         self.l7_frame = self.plant_iiwa.GetFrameByName('iiwa_link_7')
 
-        # Declare iiwa_position/torque_command publishing rate
-        self._DeclarePeriodicPublish(control_period)
-
         # iiwa position input port
         self.iiwa_position_input_port = \
             self._DeclareInputPort(
@@ -128,15 +124,25 @@ class IiwaController(LeafSystem):
                 "iiwa_plan", AbstractValue.Make(PlanBase()))
 
         # position and torque command output port
-        # first 7 elements are position commands.
-        # last 7 elements are torque commands.
         self.iiwa_position_command_output_port = \
-            self._DeclareVectorOutputPort("iiwa_position_and_torque_command",
-                                          BasicVector(self.nu*2), self._CalcIiwaCommand)
+            self._DeclareVectorOutputPort("iiwa_position_command",
+                                          BasicVector(self.nu), self._CalcIiwaPositionCommand)
+        self.iiwa_torque_command_output_port = \
+            self._DeclareVectorOutputPort("iiwa_torque_command",
+                                          BasicVector(self.nu), self._CalcIiwaTorqueCommand)
 
-    def _CalcIiwaCommand(self, context, y_data):
-        t = context.get_time()
+        # Declare command publishing rate
+        # state[0:7]: position command
+        # state[7:14]: torque command
+        # state[14]: gripper_setpoint
+        self._DeclareDiscreteState(self.nu*2)
+        self._DeclarePeriodicDiscreteUpdate(period_sec=self.control_period)
 
+    def _DoCalcDiscreteVariableUpdates(self, context, events, discrete_state):
+        # Call base method to ensure we do not get recursion.
+        LeafSystem._DoCalcDiscreteVariableUpdates(self, context, events, discrete_state)
+
+        t= context.get_time()
         self.current_plan = self.EvalAbstractInput(
             context, self.plan_input_port.get_index()).get_value()
         q_iiwa = self.EvalVectorInput(
@@ -147,23 +153,30 @@ class IiwaController(LeafSystem):
             context, self.iiwa_external_torque_input_port.get_index()).get_value()
         t_plan = t - self.current_plan.start_time
 
-        new_position_command = np.zeros(7)
-        new_torque_command = np.zeros(7)
+        new_control_output = discrete_state.get_mutable_vector().get_mutable_value()
 
-        new_position_command[:] = \
+        new_control_output[0:self.nu] = \
             self.current_plan.CalcPositionCommand(q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period)
-        new_torque_command[:] = \
+        new_control_output[self.nu:2*self.nu] = \
             self.current_plan.CalcTorqueCommand(q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period)
-
-        y = y_data.get_mutable_value()
-        y[:self.nu] = new_position_command[:]
-        y[self.nu:] = new_torque_command[:]
 
         # print current simulation time
         if (self.print_period and
                 t - self.last_print_time >= self.print_period):
-            print "t: ", context.get_time()
-            self.last_print_time = context.get_time()
+            print "t: ", t
+            self.last_print_time = t
+
+    def _CalcIiwaPositionCommand(self, context, y_data):
+        state = context.get_discrete_state_vector().get_value()
+        y = y_data.get_mutable_value()
+        # Get the ith finger control output
+        y[:] = state[0:self.nu]
+
+    def _CalcIiwaTorqueCommand(self, context, y_data):
+        state = context.get_discrete_state_vector().get_value()
+        y = y_data.get_mutable_value()
+        # Get the ith finger control output
+        y[:] = state[self.nu:2*self.nu]
 
 
 def CreateManipStationPlanRunnerDiagram(kuka_plans, gripper_setpoint_list, print_period=1.0):
@@ -185,8 +198,10 @@ def CreateManipStationPlanRunnerDiagram(kuka_plans, gripper_setpoint_list, print
                         "iiwa_torque_external")
 
     builder.ExportOutput(iiwa_controller.iiwa_position_command_output_port,
-                         "iiwa_position_and_torque_command")
-    builder.ExportOutput(plan_scheduler.hand_setpoint_output_port, "gripper_setpoint")
+                         "iiwa_position_command")
+    builder.ExportOutput(iiwa_controller.iiwa_torque_command_output_port,
+                         "iiwa_torque_command")
+    builder.ExportOutput(plan_scheduler.gripper_setpoint_output_port, "gripper_setpoint")
     builder.ExportOutput(plan_scheduler.gripper_force_limit_output_port, "force_limit")
 
     plan_runner = builder.Build()
