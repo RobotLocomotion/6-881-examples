@@ -12,8 +12,8 @@ services:
 
 env:
   matrix:
-  - DRAKE_VERSION="20181212"
-#  - DRAKE_VERSION="latest"
+#  - DRAKE_VERSION="20181212"
+  - DRAKE_VERSION="20190125"
 
 install:
   - docker build -t mit6881 -f ubuntu16_04_mit6881.dockerfile --build-arg DRAKE_VERSION=$DRAKE_VERSION .
