@@ -10,7 +10,6 @@ from pydrake.systems.analysis import Simulator
 from pydrake.common.eigen_geometry import Isometry3
 from pydrake.systems.primitives import Demultiplexer, LogOutput
 
-# from underactuated.meshcat_visualizer import MeshcatVisualizer
 from pydrake.systems.meshcat_visualizer import MeshcatVisualizer
 from plan_runner.manipulation_station_plan_runner import ManipStationPlanRunner
 from plan_runner.manipulation_station_plan_runner_diagram import CreateManipStationPlanRunnerDiagram
@@ -98,14 +97,14 @@ class ManipulationStationSimulator:
         # Add meshcat visualizer
         if is_visualizing:
             scene_graph = self.station.get_mutable_scene_graph()
-            viz = MeshcatVisualizer(scene_graph,)
-                                    # is_drawing_contact_force=True,
-                                    # plant=self.plant)
+            viz = MeshcatVisualizer(scene_graph,
+                                    draw_contact_force=True,
+                                    plant=self.plant)
             builder.AddSystem(viz)
             builder.Connect(self.station.GetOutputPort("pose_bundle"),
                             viz.GetInputPort("lcm_visualization"))
-            # builder.Connect(self.station.GetOutputPort("contact_results"),
-            #                 viz.GetInputPort("contact_results"))
+            builder.Connect(self.station.GetOutputPort("contact_results"),
+                            viz.GetInputPort("contact_results"))
 
         # Add logger
         iiwa_position_command_log = LogOutput(
@@ -153,9 +152,10 @@ class ManipulationStationSimulator:
 
         # set initial pose of the object
         if self.object_base_link_name is not None:
-            self.plant.tree().SetFreeBodyPoseOrThrow(
-               self.plant.GetBodyByName(self.object_base_link_name, self.object),
-                self.X_WObject, self.station.GetMutableSubsystemContext(self.plant, context))
+            self.plant.SetFreeBodyPose(
+                self.station.GetMutableSubsystemContext(self.plant, context),
+                self.plant.GetBodyByName(self.object_base_link_name, self.object),
+                self.X_WObject)
 
         # calculate starting time for all plans.
         t_plan = GetPlanStartingTimes(plan_list, duration_multiplier)
