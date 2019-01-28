@@ -103,8 +103,8 @@ class ManipStationPlanRunner(LeafSystem):
         t = context.get_time()
 
         if self.current_plan is None:
-            # This is true only after the constructor is called and at the first control tick after the
-            # simulator starts.
+            # This is true only after the constructor is called and at the first control
+            # tick after the simulator starts.
             self.current_plan = self.kuka_plans_list.pop(0)
             self.current_gripper_setpoint = self.gripper_setpoint_list.pop(0)
             self.current_plan_start_time = 0.
@@ -144,9 +144,11 @@ class ManipStationPlanRunner(LeafSystem):
         new_control_output = discrete_state.get_mutable_vector().get_mutable_value()
 
         new_control_output[0:self.nu] = \
-            self.current_plan.CalcPositionCommand(q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period)
+            self.current_plan.CalcPositionCommand(
+                q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period)
         new_control_output[self.nu:2*self.nu] = \
-            self.current_plan.CalcTorqueCommand(q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period)
+            self.current_plan.CalcTorqueCommand(
+                q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period)
         new_control_output[14] = self.current_gripper_setpoint
 
         # print current simulation time

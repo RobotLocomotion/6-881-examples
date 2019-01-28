@@ -1,7 +1,8 @@
 import numpy as np
 import sys
 
-from pydrake.systems.framework import Diagram, AbstractValue, LeafSystem, DiagramBuilder, BasicVector, PortDataType
+from pydrake.systems.framework import (Diagram, AbstractValue, LeafSystem,
+                                       DiagramBuilder, BasicVector, PortDataType)
 from plan_runner.robot_plans import *
 from plan_runner.open_left_door_plans import *
 
@@ -50,13 +51,14 @@ class PlanScheduler(LeafSystem):
     def _GetCurrentPlan(self, context, y_data):
         t = context.get_time()
         if self.current_plan is None:
-            # This is true only after the constructor is called and at the first control tick after the
-            # simulator starts.
+            # This is true only after the constructor is called and at the first control
+            # tick after the simulator starts.
             self.current_plan = self.kuka_plans_list.pop(0)
             self.current_gripper_setpoint = self.gripper_setpoint_list.pop(0)
             self.current_plan.start_time = 0.
         else:
-            if t - self.current_plan.start_time >= self.current_plan.duration * self.kPlanDurationMultiplier:
+            if t - self.current_plan.start_time >= \
+                    self.current_plan.duration * self.kPlanDurationMultiplier:
                 if len(self.kuka_plans_list) > 0:
                     self.current_plan = self.kuka_plans_list.pop(0)
                     self.current_gripper_setpoint = self.gripper_setpoint_list.pop(0)
@@ -68,7 +70,8 @@ class PlanScheduler(LeafSystem):
 
                 self.current_plan.start_time = t
                 self.current_plan_idx += 1
-                print 'Running plan %d' % self.current_plan_idx + " (type: " + self.current_plan.type + \
+                print 'Running plan %d' % self.current_plan_idx + \
+                      " (type: " + self.current_plan.type + \
                       "), starting at %f for a duration of %f seconds." % \
                       (t, self.current_plan.duration * self.kPlanDurationMultiplier) + "\n"
 
@@ -125,11 +128,13 @@ class IiwaController(LeafSystem):
 
         # position and torque command output port
         self.iiwa_position_command_output_port = \
-            self._DeclareVectorOutputPort("iiwa_position_command",
-                                          BasicVector(self.nu), self._CalcIiwaPositionCommand)
+            self._DeclareVectorOutputPort(
+                "iiwa_position_command",
+                BasicVector(self.nu), self._CalcIiwaPositionCommand)
         self.iiwa_torque_command_output_port = \
-            self._DeclareVectorOutputPort("iiwa_torque_command",
-                                          BasicVector(self.nu), self._CalcIiwaTorqueCommand)
+            self._DeclareVectorOutputPort(
+                "iiwa_torque_command",
+                BasicVector(self.nu), self._CalcIiwaTorqueCommand)
 
         # Declare command publishing rate
         # state[0:7]: position command
@@ -156,9 +161,11 @@ class IiwaController(LeafSystem):
         new_control_output = discrete_state.get_mutable_vector().get_mutable_value()
 
         new_control_output[0:self.nu] = \
-            self.current_plan.CalcPositionCommand(q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period)
+            self.current_plan.CalcPositionCommand(
+                q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period)
         new_control_output[self.nu:2*self.nu] = \
-            self.current_plan.CalcTorqueCommand(q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period)
+            self.current_plan.CalcTorqueCommand(
+                q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period)
 
         # print current simulation time
         if (self.print_period and

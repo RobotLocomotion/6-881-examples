@@ -5,8 +5,7 @@ from pydrake.math import RollPitchYaw, RotationMatrix
 from plan_runner.manipulation_station_plan_runner import *
 
 # Define global variables used for IK.
-plant = station.get_mutable_multibody_plant()
-
+plant = station.get_multibody_plant()
 iiwa_model = plant.GetModelInstanceByName("iiwa")
 world_frame = plant.world_frame()
 l7_frame = plant.GetFrameByName("iiwa_link_7", iiwa_model)

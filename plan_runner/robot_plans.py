@@ -166,11 +166,13 @@ class IiwaTaskSpacePlan(JacobianBasedPlan):
                  Q_WL7_ref,
                  p_L7Q=np.zeros(3)):
         """
-        @param xyz_traj (3-dimensional PiecewisePolynomial): desired trajectory of point Q in world frame,
+        @param xyz_traj (3-dimensional PiecewisePolynomial): desired
+            trajectory ]of point Q in world frame,
             RELATIVE TO ITS POSITION AT THE BEGINNING OF THE PLAN.
-        @param Q_WL7_ref (Quaternion): fixed orientation of the end effector while it its origin moves along
-            the given trajectory
-        @param p_L7Q: the point in frame L7 that tracks xyz_traj. Its default value is the origin of L7.
+        @param Q_WL7_ref (Quaternion): fixed orientation of the end effector while it its
+            origin moves along the given trajectory
+        @param p_L7Q: the point in frame L7 that tracks xyz_traj. Its default value is the
+            origin of L7.
         """
         assert xyz_traj.rows() == 3
         self.xyz_offset = None
