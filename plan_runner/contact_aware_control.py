@@ -6,10 +6,39 @@ from pydrake.solvers import mathematicalprogram as mp
 from robot_plans import *
 
 
-plant = station.get_multibody_plant()
-iiwa_model = plant.GetModelInstanceByName("iiwa")
-gripper_model = plant.GetModelInstanceByName("gripper")
-robot_body_indices = plant.GetBodyIndices(iiwa_model)
+def GetIiwaBodyAndEeIndex():
+    """
+    :param station: an instance of ManipulationStation.
+    :return:
+    robot_body_indices: a set of BodyIndex cast as integers, include both robot links
+        and the end effector.
+    end_effector_indices: a set of BodyIndex cast as integers, include bodies of the
+        end effector.
+    last_link_index: the integer body index of the body to which the end effector is
+        rigidly attahced. For the iiwas it's link7.
+    """
+    robot_body_indices = set()
+    end_effector_indices = set()
+
+    plant = station.get_multibody_plant()
+    iiwa_model = plant.GetModelInstanceByName("iiwa")
+    gripper_model = plant.GetModelInstanceByName("gripper")
+    robot_body_indices_list = plant.GetBodyIndices(iiwa_model)
+
+    # link indices
+    for idx in robot_body_indices_list:
+        robot_body_indices.add(int(idx))
+
+    # end effector indices
+    end_effector_indices.add(int(plant.GetBodyByName('body', gripper_model).index()))
+    robot_body_indices |= end_effector_indices
+
+    # last link index
+    last_link_index = int(plant.GetBodyByName('iiwa_link_7').index())
+
+    return (robot_body_indices,
+            end_effector_indices,
+            last_link_index)
 
 class RobotContactDetector(LeafSystem):
     """
@@ -24,19 +53,14 @@ class RobotContactDetector(LeafSystem):
              contact_normal), (3,) numpy array
         in which contact_force is acting on the body indexed by robot_body_index.
     """
-    def __init__(self, log=False):
+    def __init__(self, GetBodyIndexSets, log=False):
         LeafSystem.__init__(self)
         self.set_name('robot_contact_detector')
         self._DeclarePeriodicPublish(0.05, 0.0)  # assuming CPF runs at 20Hz.
 
         # A set of body indices that belong to the robot
-
-        self.robot_body_indices = set()
-        for idx in robot_body_indices:
-            self.robot_body_indices.add(int(idx))
-        self.gripper_body_idx = int(plant.GetBodyByName('body', gripper_model).index())
-        self.link7_idx = int(plant.GetBodyByName('iiwa_link_7').index())
-        self.robot_body_indices.add(self.gripper_body_idx)
+        self.robot_body_indices, self.end_effector_indices, self.last_link_index = \
+            GetBodyIndexSets()
 
         # Contact results input port from MultibodyPlant
         self.contact_results_input_port = \
@@ -77,8 +101,8 @@ class RobotContactDetector(LeafSystem):
                 a = -1
             else:
                 continue
-            if robot_body_idx == self.gripper_body_idx:
-                robot_body_idx = self.link7_idx
+            if robot_body_idx in self.end_effector_indices:
+                robot_body_idx = self.last_link_index
             self.contact_info.append(
                 (robot_body_idx,
                  contact_info_i.contact_point(),
@@ -103,8 +127,11 @@ class JointSpacePlanContact(JointSpacePlan):
 
         # maps integer body indices in the full ManipulationStation plant to BodyIndex
         # in the controller plant.
+        plant = station.get_multibody_plant()
+        iiwa_model = plant.GetModelInstanceByName("iiwa")
+        robot_body_indices_list = plant.GetBodyIndices(iiwa_model)
         self.robot_frame_map = dict()
-        for i, idx in enumerate(robot_body_indices):
+        for i, idx in enumerate(robot_body_indices_list):
             frame_idx = self.plant_iiwa.GetFrameByName("iiwa_link_%i"%i).index()
             self.robot_frame_map[int(idx)] = frame_idx
 

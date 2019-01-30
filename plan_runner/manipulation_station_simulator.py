@@ -14,7 +14,7 @@ from pydrake.systems.meshcat_visualizer import MeshcatVisualizer
 from plan_runner.manipulation_station_plan_runner import ManipStationPlanRunner
 from plan_runner.manipulation_station_plan_runner_diagram import CreateManipStationPlanRunnerDiagram
 from plan_runner.plan_utils import *
-from contact_aware_control import RobotContactDetector
+from contact_aware_control import RobotContactDetector, GetIiwaBodyAndEeIndex
 
 X_WObject_default = Isometry3.Identity()
 X_WObject_default.set_translation([.4, 0, 0])
@@ -98,7 +98,9 @@ class ManipulationStationSimulator:
                         plan_runner.GetInputPort("iiwa_torque_external"))
 
         # Add contact detector
-        contact_detector = RobotContactDetector(log=True)
+        contact_detector = RobotContactDetector(
+            GetBodyIndexSets=GetIiwaBodyAndEeIndex,
+            log=True)
         builder.AddSystem(contact_detector)
         builder.Connect(self.station.GetOutputPort("contact_results"),
                         contact_detector.GetInputPort("contact_results"))
