@@ -26,8 +26,9 @@ theta0_hinge = np.arctan2(np.abs(p_handle_2_hinge[0]),
                           np.abs(p_handle_2_hinge[1]))
 
 # position of point Q in L7 frame.  Point Q is fixed w.r.t frame L7.
-# When the robot is upright (all joint angles = 0), axes of L7 are aligned with axes of world.
-# The origin of end effector frame (plant.GetFrameByName('body')) is located at [0, 0, 0.114] in frame L7.
+# When the robot is upright (all joint angles = 0), axes of L7 are aligned with axes of
+#   world frame. The origin of end effector frame (plant.GetFrameByName('body')) is
+#   located at [0, 0, 0.114] in frame L7.
 p_L7Q = np.array([0., 0., 0.090]) + np.array([0, 0, 0.114])
 
 # orientation of end effector aligned frame
@@ -80,7 +81,8 @@ class OpenLeftDoorPositionPlan(OpenLeftDoorPlan):
             type=PlanTypes["OpenLeftDoorPositionPlan"])
         self.q_iiwa_previous = np.zeros(7)
 
-    def CalcPositionCommand(self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period):
+    def CalcPositionCommand(
+            self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period, **kwargs):
         self.CalcKinematics(q_iiwa, v_iiwa)
 
         if t_plan < self.duration:
@@ -119,14 +121,16 @@ class OpenLeftDoorImpedancePlan(OpenLeftDoorPlan):
             type=PlanTypes["OpenLeftDoorImpedancePlan"])
         self.q_iiwa_previous = np.zeros(7)
 
-    def CalcPositionCommand(self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period):
+    def CalcPositionCommand(
+            self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period, **kwargs):
         if t_plan < self.duration:
             self.q_iiwa_previous[:] = q_iiwa
             return q_iiwa
         else:
             return self.q_iiwa_previous
 
-    def CalcTorqueCommand(self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period):
+    def CalcTorqueCommand(
+            self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period, **kwargs):
         self.CalcKinematics(q_iiwa, v_iiwa)
 
         if t_plan < self.duration:

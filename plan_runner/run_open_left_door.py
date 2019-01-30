@@ -61,7 +61,7 @@ if __name__ == '__main__':
     else:
         q0 = [0, 0, 0, -1.75, 0, 1.0, 0]
         iiwa_position_command_log, iiwa_position_measured_log, iiwa_external_torque_log, \
-            state_log, t_plan = manip_station_sim.RunSimulation(
+            state_log, t_plan, contact_detector = manip_station_sim.RunSimulation(
                 plan_list, gripper_setpoint_list, extra_time=2.0, real_time_rate=0.0, q0_kuka=q0,
                 is_visualizing=not args.no_visualization,
                 is_plan_runner_diagram=args.diagram_plan_runner)

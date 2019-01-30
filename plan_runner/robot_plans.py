@@ -15,6 +15,7 @@ plan_type_strings = [
     "OpenLeftDoorPositionPlan",
     "OpenLeftDoorImpedancePlan",
     "JointSpacePlanGoToTarget",
+    "JointSpacePlanContact"
 ]
 
 PlanTypes = dict()
@@ -38,10 +39,12 @@ class PlanBase:
     def get_duration(self):
         return self.duration
 
-    def CalcPositionCommand(self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period):
+    def CalcPositionCommand(
+            self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period, **kwargs):
         pass
 
-    def CalcTorqueCommand(self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period):
+    def CalcTorqueCommand(
+            self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period, **kwargs):
         return np.zeros(7)
 
 
@@ -52,7 +55,8 @@ class JointSpacePlan(PlanBase):
                           type=PlanTypes["JointSpacePlan"],
                           trajectory=trajectory)
 
-    def CalcPositionCommand(self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period):
+    def CalcPositionCommand(
+            self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period, **kwargs):
         return self.traj.value(t_plan).flatten()
 
 '''
@@ -71,7 +75,8 @@ class JointSpacePlanGoToTarget(PlanBase):
             q_start, self.q_target, self.duration)
         self.traj_d = self.traj.derivative(1)
 
-    def CalcPositionCommand(self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period):
+    def CalcPositionCommand(
+            self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period, **kwargs):
         if self.traj is None:
             self.UpdateTrajectory(q_start=q_iiwa)
         return self.traj.value(t_plan).flatten()
@@ -94,7 +99,8 @@ class JointSpacePlanRelative(PlanBase):
             q_start, self.delta_q + q_start, self.duration)
         self.traj_d = self.traj.derivative(1)
 
-    def CalcPositionCommand(self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period):
+    def CalcPositionCommand(
+            self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period, **kwargs):
         if self.traj is None:
             self.UpdateTrajectory(q_start=q_iiwa)
         return self.traj.value(t_plan).flatten()
@@ -103,7 +109,6 @@ class JointSpacePlanRelative(PlanBase):
 class JacobianBasedPlan(PlanBase):
     def __init__(self, plan_type, trajectory, Q_WL7_ref, p_L7Q):
         self.plant_iiwa = station.get_controller_plant()
-        self.tree_iiwa =self.plant_iiwa.tree()
         self.context_iiwa = self.plant_iiwa.CreateDefaultContext()
         self.l7_frame = self.plant_iiwa.GetFrameByName('iiwa_link_7')
 
@@ -132,12 +137,12 @@ class JacobianBasedPlan(PlanBase):
         - X_WL7: pose of frame L7 relative to world frame.
         """
         x_iiwa_mutable = \
-            self.tree_iiwa.GetMutablePositionsAndVelocities(self.context_iiwa)
+            self.plant_iiwa.GetMutablePositionsAndVelocities(self.context_iiwa)
         x_iiwa_mutable[:7] = q_iiwa
         x_iiwa_mutable[7:] = v_iiwa
 
         # Pose of frame L7 in world frame
-        self.X_WL7 = self.tree_iiwa.CalcRelativeTransform(
+        self.X_WL7 = self.plant_iiwa.CalcRelativeTransform(
             self.context_iiwa, frame_A=self.plant_iiwa.world_frame(),
             frame_B=self.l7_frame)
 
@@ -148,7 +153,7 @@ class JacobianBasedPlan(PlanBase):
         self.Q_WL7 = self.X_WL7.quaternion()
 
         # calculate Geometric jacobian (6 by 7 matrix) of point Q in frame L7.
-        self.Jv_WL7q = self.tree_iiwa.CalcFrameGeometricJacobianExpressedInWorld(
+        self.Jv_WL7q = self.plant_iiwa.CalcFrameGeometricJacobianExpressedInWorld(
             context=self.context_iiwa, frame_B=self.l7_frame,
             p_BoFo_B=self.p_L7Q)
 
@@ -193,7 +198,8 @@ class IiwaTaskSpacePlan(JacobianBasedPlan):
         # must be called after calling CalcKinematics
         return self.traj.value(t_plan).flatten() + self.xyz_offset - self.p_WQ
 
-    def CalcPositionCommand(self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period):
+    def CalcPositionCommand(
+            self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period, **kwargs):
         self.CalcKinematics(q_iiwa, v_iiwa)
 
         if self.xyz_offset is None:

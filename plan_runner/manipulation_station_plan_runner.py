@@ -1,6 +1,8 @@
 import numpy as np
 import sys
-from pydrake.systems.framework import BasicVector, LeafSystem, PortDataType
+from pydrake.systems.framework import (
+    AbstractValue, BasicVector, LeafSystem, PortDataType
+)
 from plan_runner.robot_plans import *
 from plan_runner.open_left_door_plans import *
 
@@ -28,7 +30,11 @@ class ManipStationPlanRunner(LeafSystem):
     - kuka_plans be an empty list, or
     - kuka_plans[0].traj be a valid PiecewisePolynomial.
     """
-    def __init__(self, kuka_plans, gripper_setpoint_list, control_period=0.005, print_period=0.5):
+    def __init__(self,
+                 kuka_plans,
+                 gripper_setpoint_list,
+                 control_period=0.005,
+                 print_period=0.5):
         LeafSystem.__init__(self)
         assert len(kuka_plans) == len(gripper_setpoint_list)
         self.set_name("Manipulation Plan Runner")
@@ -90,6 +96,11 @@ class ManipStationPlanRunner(LeafSystem):
             self._DeclareVectorOutputPort(
                 "force_limit", BasicVector(1), self._CalcForceLimitOutput)
 
+        # contact information
+        self.contact_info_input_port = \
+            self._DeclareAbstractInputPort(
+                "contact_info", AbstractValue.Make(list()))
+
         # Declare command publishing rate
         # state[0:7]: position command
         # state[7:14]: torque command
@@ -122,7 +133,8 @@ class ManipStationPlanRunner(LeafSystem):
 
                 self.current_plan_start_time = t
                 self.current_plan_idx += 1
-                print 'Running plan %d' % self.current_plan_idx + " (type: " + self.current_plan.type + \
+                print 'Running plan %d' % self.current_plan_idx + \
+                      " (type: " + self.current_plan.type + \
                       "), starting at %f for a duration of %f seconds." % \
                       (t, self.current_plan.duration*self.kPlanDurationMultiplier) + "\n"
 
@@ -139,13 +151,16 @@ class ManipStationPlanRunner(LeafSystem):
             context, self.iiwa_velocity_input_port.get_index()).get_value()
         tau_iiwa = self.EvalVectorInput(
             context, self.iiwa_external_torque_input_port.get_index()).get_value()
+        contact_info = self.EvalAbstractInput(
+            context, self.contact_info_input_port.get_index()).get_value()
         t_plan = t - self.current_plan_start_time
 
         new_control_output = discrete_state.get_mutable_vector().get_mutable_value()
 
         new_control_output[0:self.nu] = \
             self.current_plan.CalcPositionCommand(
-                q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period)
+                q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period,
+                contact_info=contact_info)
         new_control_output[self.nu:2*self.nu] = \
             self.current_plan.CalcTorqueCommand(
                 q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period)
