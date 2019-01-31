@@ -1,7 +1,5 @@
 <sdf version='1.6'>
-  <model name='two_bodies'>
-
-
+  <model name='two_link_arm'>
   <joint name='weld_link_0_to_world' type='fixed'>
     <child>link_0</child>
     <parent>world</parent>
@@ -110,15 +108,24 @@
   </joint>
 
   <link name="link_ee">
-  <pose> 0 2.0 0 0 0 0</pose>
-  <visual name='ball'>
-    <pose frame=''>0 0.0 0 0 0 0</pose>
-    <geometry>
-      <sphere>
-       <radius>0.1</radius>
-      </sphere>
-    </geometry>
-  </visual>
+    <pose> 0 2.0 0 0 0 0</pose>
+    <visual name='ball'>
+      <pose frame=''>0 0.0 0 0 0 0</pose>
+      <geometry>
+        <sphere>
+         <radius>0.1</radius>
+        </sphere>
+      </geometry>
+    </visual>
+
+    <collision name='collision_ee'>
+      <pose>0 0.0 0 0 0 0</pose>
+      <geometry>
+        <sphere>
+         <radius>0.1</radius>
+        </sphere>
+      </geometry>
+    </collision>
   </link>
 
   </model>

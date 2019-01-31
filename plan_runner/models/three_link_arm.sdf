@@ -1,7 +1,5 @@
 <sdf version='1.6'>
-  <model name='two_bodies'>
-
-
+  <model name='three_link_arm'>
   <joint name='weld_link_0_to_world' type='fixed'>
     <child>link_0</child>
     <parent>world</parent>
