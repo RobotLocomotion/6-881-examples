@@ -82,11 +82,13 @@ class ManipStationPlanRunner(LeafSystem):
 
         # position and torque command output port
         self.iiwa_position_command_output_port = \
-            self._DeclareVectorOutputPort("iiwa_position_command",
-                                          BasicVector(self.nu), self._CalcIiwaPositionCommand)
+            self._DeclareVectorOutputPort(
+                "iiwa_position_command",
+                BasicVector(self.nu), self._CalcIiwaPositionCommand)
         self.iiwa_torque_command_output_port = \
-            self._DeclareVectorOutputPort("iiwa_torque_command",
-                                          BasicVector(self.nu), self._CalcIiwaTorqueCommand)
+            self._DeclareVectorOutputPort(
+                "iiwa_torque_command",
+                BasicVector(self.nu), self._CalcIiwaTorqueCommand)
 
         # gripper setpoint and torque limit
         self.hand_setpoint_output_port = \

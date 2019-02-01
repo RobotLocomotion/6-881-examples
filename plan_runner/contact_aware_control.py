@@ -5,7 +5,6 @@ from pydrake.multibody.multibody_tree.multibody_plant import ContactResults
 from pydrake.solvers import mathematicalprogram as mp
 from robot_plans import *
 
-
 def GetIiwaBodyAndEeIndex():
     """
     :param station: an instance of ManipulationStation.
@@ -135,6 +134,9 @@ class JointSpacePlanContact(JointSpacePlan):
             frame_idx = self.plant_iiwa.GetFrameByName("iiwa_link_%i"%i).index()
             self.robot_frame_map[int(idx)] = frame_idx
 
+        self.nq = self.plant_iiwa.num_positions()
+        self.nv = self.plant_iiwa.num_velocities()
+
     def CalcPositionCommand(
             self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period, **kwargs):
         contact_info_list = kwargs['contact_info']
@@ -144,34 +146,66 @@ class JointSpacePlanContact(JointSpacePlan):
         x_iiwa_mutable[:7] = q_iiwa
         x_iiwa_mutable[7:] = v_iiwa
 
+        q_robot_ref_next = self.traj.value(t_plan).flatten()
+
+        q_robot_cmd = self.CalcQcommanded(
+            contact_info_list=contact_info_list,
+            nq=self.nq,
+            nd=4,
+            robot_frame_map=self.robot_frame_map,
+            plant_robot=self.plant_iiwa,
+            context_robot=self.context_iiwa,
+            control_period=control_period,
+            q_robot=q_iiwa,
+            q_robot_ref_next=q_robot_ref_next)
+
+        return q_robot_cmd
+
+    @staticmethod
+    def CalcQcommanded(contact_info_list, nq, nd,
+                       robot_frame_map, plant_robot, context_robot, control_period,
+                       q_robot, q_robot_ref_next):
+        """
+
+        :param contact_info_list:
+        :param nq: number of joints of the robot.
+        :param nd: number of vectors spanning tangent contact planes, can be 2 or 4.
+        :return:
+        """
         nc = len(contact_info_list)  # number of contacts
-        Jn = np.zeros((nc, 1, 7))  # normal j\acobians
-        Jv = np.zeros((nc, 4, 7))  # friction cone jacobians
-        Jc = np.zeros((nc, 3, 7)) # "contact" jacobian
+        Jn = np.zeros((nc, 1, nq))  # normal jacobians
+        Jv = np.zeros((nc, nd, nq))  # friction cone jacobians
+        Jc = np.zeros((nc, 3, nq)) # "contact" jacobian
         for i, contact_info in enumerate(contact_info_list):
             # unpack contact_info, C denotes the contact point
             robot_body_idx, p_WC, f_C_W, normal = contact_info
 
-            frame_B_idx = self.robot_frame_map[robot_body_idx]
-            frame_B = self.plant_iiwa.get_frame(frame_B_idx)
+            frame_B_idx = robot_frame_map[robot_body_idx]
+            frame_B = plant_robot.get_frame(frame_B_idx)
 
             # pose of frame_B, body frame of the robot link on which the current
             # contact force acts.
-            X_WB = self.plant_iiwa.CalcRelativeTransform(
-                self.context_iiwa,
-                frame_A=self.plant_iiwa.world_frame(),
+            X_WB = plant_robot.CalcRelativeTransform(
+                context_robot,
+                frame_A=plant_robot.world_frame(),
                 frame_B=frame_B)
             p_BC = X_WB.inverse().multiply(p_WC)
 
             # generating vectors of the tangent plane
-            dC = np.zeros((4, 3))
-            if np.abs(normal[0]) < 1e-6:
+            dC = np.zeros((nd, 3))
+            if np.linalg.norm(normal[:2]) < 1e-6:
                 dC[0] = [0, normal[2], -normal[1]]
             else:
                 dC[0] = [normal[1], -normal[0], 0]
             dC[0] /= np.linalg.norm(dC[0])
-            dC[1] = np.cross(normal, dC[0])
-            dC[2:] = - dC[:2]
+
+            if nd == 4:
+                dC[1] = np.cross(normal, dC[0])
+                dC[2:] = - dC[:2]
+            elif nd == 2:
+                dC[1] = - dC[0]
+            else:
+                raise NotImplementedError
 
             # generating unit vectors of friction cone
             # Let's use a coefficient of friction is 0.3 for all contacts
@@ -180,8 +214,8 @@ class JointSpacePlanContact(JointSpacePlan):
                 vC[j] /= np.linalg.norm(vC[j])
 
             # geometric jacobian
-            Jg = self.plant_iiwa.CalcFrameGeometricJacobianExpressedInWorld(
-                context=self.context_iiwa,
+            Jg = plant_robot.CalcFrameGeometricJacobianExpressedInWorld(
+                context=context_robot,
                 frame_B=frame_B,
                 p_BoFo_B=p_BC)
 
@@ -190,10 +224,10 @@ class JointSpacePlanContact(JointSpacePlan):
             Jc[i] = Jg[3:]
 
         prog = mp.MathematicalProgram()
-        dq = prog.NewContinuousVariables(7, "dq")   # actual change in joint angles
-        dq_d = prog.NewContinuousVariables(7, "dq_d")  # desired change in joint angles
-        f = prog.NewContinuousVariables(4*nc, "f")  # contact forces
-        f.resize((nc, 4))
+        dq = prog.NewContinuousVariables(nq, "dq")   # actual change in joint angles
+        dq_d = prog.NewContinuousVariables(nq, "dq_d")  # desired change in joint angles
+        f = prog.NewContinuousVariables(nd*nc, "f")  # contact forces
+        f.resize((nc, nd))
 
         # no penetration
         for i in range(nc):
@@ -201,29 +235,27 @@ class JointSpacePlanContact(JointSpacePlan):
                 Jn[i]/control_period, np.zeros(1), np.full(1, np.inf), dq)
 
         # joint torque due to joint stiffness
-        Kq = 100*np.ones(7)
+        Kq = 100*np.ones(nq)
         tau_k = - Kq * (dq - dq_d)
 
         # joint torque due to external force
-        tau_ext = np.zeros(7, dtype=object)
+        tau_ext = np.zeros(nq, dtype=object)
         for i in range(nc):
             tau_ext += Jv[i].T.dot(f[i])
 
         # force balance
-        for i in range(7):
+        for i in range(nq):
             prog.AddLinearConstraint(tau_k[i] + tau_ext[i] == 0)
 
         # objectives
-        q_iiwa_next = self.traj.value(t_plan).flatten()
-        prog.AddQuadraticCost(((q_iiwa + dq_d - q_iiwa_next)**2).sum())
+        prog.AddQuadraticCost(((q_robot + dq_d - q_robot_ref_next)**2).sum())
         f.resize(nc*4)
-        prog.AddQuadraticCost(100*(f**2).sum())
+        prog.AddQuadraticCost(10*(f**2).sum())
 
         result = prog.Solve()
         assert result == mp.SolutionResult.kSolutionFound
 
-        return q_iiwa + prog.GetSolution(dq_d)
-
+        return q_robot + prog.GetSolution(dq_d)
 
 
 

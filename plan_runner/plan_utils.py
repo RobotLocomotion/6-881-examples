@@ -64,8 +64,9 @@ Plots iiwa_external_torque from its signal logger system.
 def PlotExternalTorqueLog(iiwa_external_torque_log):
     fig_external_torque = plt.figure(figsize=(8, 18), dpi=150)
     t = iiwa_external_torque_log.sample_times()
+    n = len(iiwa_external_torque_log.data())
     for i, torque in enumerate(iiwa_external_torque_log.data()):
-        ax = fig_external_torque.add_subplot(711 + i)
+        ax = fig_external_torque.add_subplot(100 * n + 11 + i)
         ax.plot(t, torque, label='joint_%d' % (i + 1))
         ax.set_xlabel("t(s)")
         ax.set_ylabel("Nm")
@@ -79,10 +80,11 @@ def PlotExternalTorqueLog(iiwa_external_torque_log):
 Plots iiwa_position from signal logger systems. 
 '''
 def PlotIiwaPositionLog(iiwa_position_command_log, iiwa_position_measured_log):
-    fig = plt.figure(figsize=(8, 18), dpi=150)
+    n = len(iiwa_position_command_log.data())
+    fig = plt.figure(figsize=(8, 2.5*n), dpi=150)
     t = iiwa_position_command_log.sample_times()
-    for i in range(len(iiwa_position_command_log.data())):
-        ax = fig.add_subplot(711 + i)
+    for i in range(n):
+        ax = fig.add_subplot(100*n + 11 + i)
         q_commanded = iiwa_position_command_log.data()[i]
         q_measured = iiwa_position_measured_log.data()[i]
         ax.plot(t, q_commanded/np.pi*180, label='q_commanded@joint_%d' % (i + 1))

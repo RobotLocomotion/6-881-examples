@@ -14,9 +14,10 @@ from pydrake.systems.framework import (
 from pydrake.multibody.plant import (
     AddMultibodyPlantSceneGraph,
 )
-# from plan_runner.plan_utils import RenderSystemWithGraphviz
-from pydrake.systems.primitives import LogOutput
+from pydrake.systems.primitives import LogOutput, Demultiplexer
 from pydrake.systems.meshcat_visualizer import MeshcatVisualizer
+
+from plan_runner.contact_aware_control import RobotContactDetector, JointSpacePlanContact
 
 # length of robot limbs
 l1 = 1.0
@@ -32,6 +33,7 @@ def ForwardKinematics2Link(q):
     while theta >= np.pi:
         theta -= np.pi
     return np.array([x, y, theta])
+
 
 def Jacobian2Link(q):
     from numpy import sin, cos
@@ -127,7 +129,8 @@ class RobotTrajRunner(LeafSystem):
         LeafSystem.__init__(self)
         self.set_name('robot_trajectory_runner')
 
-        self.plant = plant
+        self.plant_robot = plant
+        self.context_robot = plant.CreateDefaultContext()
         self.traj = trajectory
 
         self.nq = plant.num_positions()
@@ -137,16 +140,62 @@ class RobotTrajRunner(LeafSystem):
             self._DeclareVectorOutputPort(
                 "q_robot_commanded", BasicVector(self.nv), self._CalcQcmd)
 
+        self.robot_state_input_port = \
+            self._DeclareVectorInputPort(
+                "robot_state", BasicVector(self.nq + self.nv))
+
+        # contact information
+        self.contact_info_input_port = \
+            self._DeclareAbstractInputPort(
+                "contact_info", AbstractValue.Make(list()))
+
         # control rate
         self.control_period = 0.005
         self._DeclareDiscreteState(self.nv)
         self._DeclarePeriodicDiscreteUpdate(period_sec=self.control_period)
         self.q_cmd_prev = None
 
+        # robot_frame_map
+        self.robot_frame_map = dict()
+        robot_model = plant.GetModelInstanceByName("two_link_arm")
+        robot_body_indices_list = plant.GetBodyIndices(robot_model)
+        for idx in robot_body_indices_list:
+            frame_idx = plant.get_body(idx).body_frame().index()
+            self.robot_frame_map[int(idx)] = frame_idx
+
     def _DoCalcDiscreteVariableUpdates(self, context, events, discrete_state):
+        LeafSystem._DoCalcDiscreteVariableUpdates(self, context, events, discrete_state)
+
+        # read input ports
         t = context.get_time()
+        x_robot = self.EvalVectorInput(
+            context, self.robot_state_input_port.get_index()).get_value()
+        q_robot = x_robot[:self.nq]
+        v_robot = x_robot[self.nq:]
+        contact_info_list = self.EvalAbstractInput(
+            context, self.contact_info_input_port.get_index()).get_value()
+
+        # update context
+        x_robot_mutable = \
+            self.plant_robot.GetMutablePositionsAndVelocities(self.context_robot)
+        x_robot_mutable[:self.nq] = q_robot
+        x_robot_mutable[self.nq:] = v_robot
+
+        q_robot_ref_next = self.traj.value(t).flatten()
+
+        q_robot_cmd = JointSpacePlanContact.CalcQcommanded(
+            contact_info_list=contact_info_list,
+            nq=self.nq,
+            nd=2,
+            robot_frame_map=self.robot_frame_map,
+            plant_robot=self.plant_robot,
+            context_robot=self.context_robot,
+            control_period=self.control_period,
+            q_robot=q_robot,
+            q_robot_ref_next=q_robot_ref_next)
+
         ooutput = discrete_state.get_mutable_vector().get_mutable_value()
-        ooutput[:] = self.traj.value(t).flatten()
+        ooutput[:] = q_robot_cmd
 
     def _CalcQcmd(self, context, y_data):
         state = context.get_discrete_state_vector().get_value()
@@ -166,9 +215,33 @@ class PlanarArmSimulator:
 
         robot_sdf_path = os.path.join(
             os.getcwd(), "models", "two_link_arm.sdf")
+        ground_sdf_path = os.path.join(
+            os.getcwd(), "models", "ground_box.sdf")
+        parser.AddModelFromFile(ground_sdf_path)
         robot_model = parser.AddModelFromFile(robot_sdf_path)
         plant.AddForceElement(UniformGravityFieldElement())
         plant.Finalize()
+
+        # ContactDetector
+        def GetTwoLinkBodyAndEeIndex():
+            robot_body_indices = set()
+            end_effector_indices = set()
+            last_link_index = None
+
+            robot_body_indices_list = plant.GetBodyIndices(robot_model)
+            # link indices
+            for idx in robot_body_indices_list:
+                robot_body_indices.add(int(idx))
+
+            return (robot_body_indices,
+                    end_effector_indices,
+                    last_link_index)
+
+        contact_detector = RobotContactDetector(GetTwoLinkBodyAndEeIndex, log=True)
+        builder.AddSystem(contact_detector)
+        builder.Connect(plant.GetOutputPort("contact_results"),
+                        contact_detector.GetInputPort("contact_results"))
+        self.contact_detector = contact_detector
 
         # InverseDynamicsController
         controller = RobotInverseDynamicsController(plant=plant)
@@ -182,8 +255,10 @@ class PlanarArmSimulator:
         traj_runner = builder.AddSystem(RobotTrajRunner(plant=plant))
         builder.Connect(traj_runner.GetOutputPort('q_robot_commanded'),
                         controller.joint_angle_commanded_input_port)
-        # builder.Connect(plant.get_contact_results_output_port(),
-        #                 controller.contact_results_input_port)
+        builder.Connect(contact_detector.GetOutputPort("contact_info"),
+                        traj_runner.GetInputPort("contact_info"))
+        builder.Connect(plant.get_continuous_state_output_port(),
+                        traj_runner.GetInputPort("robot_state"))
         self.traj_runner = traj_runner
 
         # MeshcatVisualizer
@@ -197,12 +272,21 @@ class PlanarArmSimulator:
         builder.Connect(plant.GetOutputPort("contact_results"),
                         viz.GetInputPort("contact_results"))
 
-        diagram = builder.Build()
-        # RenderSystemWithGraphviz(diagram)
-
         # Loggers
-        self.state_log = LogOutput(plant.get_continuous_state_output_port(), builder)
-        self.state_log._DeclarePeriodicPublish(0.02)
+        demux = builder.AddSystem(Demultiplexer(
+            size=self.plant.num_multibody_states(), output_ports_sizes=2))
+        builder.Connect(plant.get_continuous_state_output_port(),
+                        demux.get_input_port(0))
+        self.q_log = LogOutput(demux.get_output_port(0), builder)
+        self.q_log._DeclarePeriodicPublish(0.02)
+
+        self.q_cmd_log = LogOutput(traj_runner.GetOutputPort("q_robot_commanded"),
+                                   builder)
+        self.q_cmd_log._DeclarePeriodicPublish(0.02)
+
+        diagram = builder.Build()
+        from plan_runner.plan_utils import RenderSystemWithGraphviz
+        RenderSystemWithGraphviz(diagram)
 
         # Create simulation diagram context
         diagram_context = diagram.CreateDefaultContext()
@@ -221,9 +305,8 @@ class PlanarArmSimulator:
 
         self.traj_runner.traj = traj
         self.simulator.Initialize()
-        self.simulator.StepTo(traj.end_time() * 1.1)
+        self.simulator.StepTo(traj.end_time() * 2.0)
 
-        return self.state_log
 
 
 
