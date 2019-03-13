@@ -3,7 +3,7 @@ from pydrake.trajectories import PiecewisePolynomial
 from pydrake.math import RollPitchYaw
 from pydrake.common.eigen_geometry import Isometry3, Quaternion
 from pydrake.examples.manipulation_station import ManipulationStation
-from pydrake.multibody.multibody_tree.multibody_plant import MultibodyPlant
+from pydrake.multibody.plant import MultibodyPlant
 from plan_utils import *
 
 plan_type_strings = [
@@ -105,7 +105,7 @@ class IiwaTaskSpacePlan(PlanBase):
         self.xyz_offset = None
 
         self.plant_iiwa = station.get_controller_plant()
-        self.tree_iiwa =self.plant_iiwa.tree()
+        # self.plant_iiwa =self.plant_iiwa.tree()
         self.context_iiwa = self.plant_iiwa.CreateDefaultContext()
         self.l7_frame = self.plant_iiwa.GetFrameByName('iiwa_link_7')
 
@@ -140,16 +140,16 @@ class IiwaTaskSpacePlan(PlanBase):
         if t_plan < self.duration * 2:
             # Update context
             x_iiwa_mutable = \
-                self.tree_iiwa.GetMutablePositionsAndVelocities(self.context_iiwa)
+                self.plant_iiwa.GetMutablePositionsAndVelocities(self.context_iiwa)
             x_iiwa_mutable[:7] = q_iiwa
 
             # calculate Geometric jacobian (6 by 7 matrix) of point Q in frame L7.
-            Jv_WL7q = self.tree_iiwa.CalcFrameGeometricJacobianExpressedInWorld(
+            Jv_WL7q = self.plant_iiwa.CalcFrameGeometricJacobianExpressedInWorld(
                 context=self.context_iiwa, frame_B=self.l7_frame,
                 p_BoFo_B=self.p_L7Q)
 
             # Pose of frame L7 in world frame
-            X_WL7 = self.tree_iiwa.CalcRelativeTransform(
+            X_WL7 = self.plant_iiwa.CalcRelativeTransform(
                 self.context_iiwa, frame_A=self.plant_iiwa.world_frame(),
                 frame_B=self.l7_frame)
 

@@ -35,15 +35,15 @@ class ManipStationPlanRunner(LeafSystem):
 
         # Add a zero order hold to hold the current position of the robot
         kuka_plans.insert(0, JointSpacePlanRelative(
-            duration=3.0, delta_q=np.zeros(7)))
+            duration=1.0, delta_q=np.zeros(7)))
         gripper_setpoint_list.insert(0, 0.055)
 
-        if len(kuka_plans) > 1:
-            # Insert to the beginning of plan_list a plan that moves the robot from its
-            # current position to plan_list[0].traj.value(0)
-            kuka_plans.insert(1, JointSpacePlanGoToTarget(
-                duration=6.0, q_target=kuka_plans[1].traj.value(0).flatten()))
-            gripper_setpoint_list.insert(0, 0.055)
+        # if len(kuka_plans) > 1:
+        #     # Insert to the beginning of plan_list a plan that moves the robot from its
+        #     # current position to plan_list[0].traj.value(0)
+        #     kuka_plans.insert(1, JointSpacePlanGoToTarget(
+        #         duration=3.0, q_target=kuka_plans[1].traj.value(0).flatten()))
+        #     gripper_setpoint_list.insert(0, 0.055)
 
         self.gripper_setpoint_list = gripper_setpoint_list
         self.kuka_plans_list = kuka_plans
@@ -62,7 +62,7 @@ class ManipStationPlanRunner(LeafSystem):
         # create a multibodyplant containing the robot only, which is used for
         # jacobian calculations.
         self.plant_iiwa = station.get_controller_plant()
-        self.tree_iiwa = self.plant_iiwa.tree()
+        # self.plant_iiwa = self.plant_iiwa.tree()
         self.context_iiwa = self.plant_iiwa.CreateDefaultContext()
         self.l7_frame = self.plant_iiwa.GetFrameByName('iiwa_link_7')
 
@@ -96,7 +96,7 @@ class ManipStationPlanRunner(LeafSystem):
             self._DeclareVectorOutputPort(
                 "force_limit", BasicVector(1), self._CalcForceLimitOutput)
 
-        self.kPlanDurationMultiplier = 1.1
+        self.kPlanDurationMultiplier = 1.0 #1.1
 
     def _GetCurrentPlan(self, context):
         t = context.get_time()
@@ -148,11 +148,11 @@ class ManipStationPlanRunner(LeafSystem):
             if self.current_plan.xyz_offset is None:
                 # update self.context_iiwa
                 x_iiwa_mutable = \
-                    self.tree_iiwa.GetMutablePositionsAndVelocities(self.context_iiwa)
+                    self.plant_iiwa.GetMutablePositionsAndVelocities(self.context_iiwa)
                 x_iiwa_mutable[:7] = q_iiwa
 
                 # Pose of frame L7 in world frame
-                X_WL7 = self.tree_iiwa.CalcRelativeTransform(
+                X_WL7 = self.plant_iiwa.CalcRelativeTransform(
                     self.context_iiwa, frame_A=self.plant_iiwa.world_frame(),
                     frame_B=self.l7_frame)
 
@@ -169,13 +169,13 @@ class ManipStationPlanRunner(LeafSystem):
                 self.current_plan.type == PlanTypes["OpenLeftDoorPositionPlan"]:
             # update self.context_iiwa
             x_iiwa_mutable = \
-                self.tree_iiwa.GetMutablePositionsAndVelocities(self.context_iiwa)
+                self.plant_iiwa.GetMutablePositionsAndVelocities(self.context_iiwa)
             x_iiwa_mutable[:7] = q_iiwa
 
             Jv_WL7q, p_HrQ, R_L7L7r, R_WL7 = self.current_plan.CalcKinematics(
                 l7_frame=self.l7_frame,
                 world_frame=self.plant_iiwa.world_frame(),
-                tree_iiwa=self.tree_iiwa, context_iiwa=self.context_iiwa,
+                tree_iiwa=self.plant_iiwa, context_iiwa=self.context_iiwa,
                 t_plan=t_plan)
 
             # compute commands

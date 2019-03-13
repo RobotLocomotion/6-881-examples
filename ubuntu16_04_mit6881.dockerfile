@@ -24,6 +24,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean all
 
+# clone drake from source
+RUN git clone https://github.com/robotlocomotion/drake /drake
+
 # clone underactuated repo
 RUN git clone -b contact_force_visualization --single-branch https://github.com/pangtao22/underactuated.git /underactuated
 
