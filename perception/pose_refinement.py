@@ -296,9 +296,13 @@ class PoseRefinement(LeafSystem):
         pose_bundle = self.EvalAbstractInput(
             context, self.pose_bundle_port.get_index()).get_value()
         init_pose = None
-        for i in range(6):
+        for i in range(pose_bundle.get_num_poses()):
             if pose_bundle.get_name(i) == self.object_name:
                 init_pose = pose_bundle.get_pose(i)
+                break
+        X_WDepth = self.camera_configs["right_camera_pose_world"].multiply(
+            self.camera_configs["right_camera_pose_internal"])
+        init_pose = X_WDepth.multiply(init_pose)
         point_cloud = self.EvalAbstractInput(
             context, self.point_cloud_port.get_index()).get_value()
 
@@ -322,7 +326,7 @@ class PoseRefinement(LeafSystem):
                         self.viz_save_location, "segmented_scene_colors"),
                     segmented_scene_colors)
 
-        # init_pose = self._TransformDopePose(init_pose)
+        # init_pose = self._TransformDopePose(self.object_name, init_pose)
         X_WObject_refined = self.AlignPose(
             segmented_scene_points, segmented_scene_colors, self.model,
             self.model_image, init_pose)
@@ -330,14 +334,60 @@ class PoseRefinement(LeafSystem):
         output.get_mutable_value().set_matrix(X_WObject_refined)
 
 # TODO(kmuhlrad): make this more formal, right now this is only the crackers
-def TransformDopePose(object_name, pose):
+def TransformDopePose(self, object_name, pose):
     transforms = {}
-    X = Isometry3.Identity()
-    X.set_matrix(np.array([[0, 0, 1., 0 ],
-                           [ -1., 0, 0, 0 ],
-                           [ 0, -1., 0, 0 ],
-                           [ -.014141999483108521, .10347499847412109, .012884999513626099, 1 ]]).T)
-    transforms['cracker'] = X
+    X_Cracker = Isometry3.Identity()
+    X_Cracker.set_matrix(
+        np.array([[0, 0, 1., 0 ],
+                  [ -1., 0, 0, 0 ],
+                  [ 0, -1., 0, 0 ],
+                  [ -.014141999483108521, .10347499847412109, .012884999513626099, 1 ]]).T)
+    transforms['cracker'] = X_Cracker
+
+    X_Sugar = Isometry3.Identity()
+    X_Sugar.set_matrix(
+        np.array([
+            [ -3.4877998828887939, 3.4899001121520996, 99.878196716308594, 0 ],
+            [ -99.926002502441406, -1.7441999912261963, -3.4284999370574951, 0 ],
+            [ 1.6224000453948975, -99.923896789550781, 3.5481998920440674, 0 ],
+            [ -1.795199990272522, 8.7579002380371094, 0.38839998841285706, 100 ]]).T / 100.)
+    transforms['sugar'] = X_Sugar
+
+    X_Soup = Isometry3.Identity()
+    X_Soup.set_matrix(
+        np.array([
+            [ 99.144500732421875, 0, -13.052599906921387, 0 ],
+            [ 13.052599906921387, 0, 99.144500732421875, 0 ],
+            [ 0, -100, 0, 0 ],
+            [ -0.1793999969959259, 5.1006999015808105, -8.4443998336791992, 100 ]]).T / 100.)
+    transforms['soup'] = X_Soup
+
+    X_Mustard = Isometry3.Identity()
+    X_Mustard.set_matrix(
+        np.array([
+            [ 92.050498962402344, 0, 39.073101043701172, 0 ],
+            [ -39.073101043701172, 0, 92.050498962402344, 0 ],
+            [ 0, -100, 0, 0 ],
+            [ 0.49259999394416809, 9.2497997283935547, 2.7135999202728271, 100 ]]).T / 100.)
+    transforms['mustard'] = X_Mustard
+
+    X_Gelatin = Isometry3.Identity()
+    X_Gelatin.set_matrix(
+        np.array([
+            [ 22.494199752807617, 97.436996459960938, 0.19629999995231628, 0 ],
+            [ -97.433296203613281, 22.495100021362305, -0.85030001401901245, 0 ],
+            [ -0.87269997596740723, 0, 99.996200561523438, 0 ],
+            [ -0.29069998860359192, 2.3998000621795654, -1.4543999433517456, 100 ]]).T / 100.)
+    transforms['gelatin'] = X_Gelatin
+
+    X_Meat = Isometry3.Identity()
+    X_Meat.set_matrix(
+        np.array([
+            [ 99.862998962402344, 0, -5.2336001396179199, 0 ],
+            [ 5.2336001396179199, 0, 99.862998962402344, 0 ],
+            [ 0, -100, 0, 0 ],
+            [ 3.4065999984741211, 3.8582999706268311, 2.4767000675201416, 100 ]]).T / 100.)
+    transforms['meat'] = X_Meat
 
     return pose.multiply(transforms[object_name])
 
