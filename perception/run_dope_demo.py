@@ -13,8 +13,10 @@ from pydrake.systems.sensors import ImageToLcmImageArrayT, PixelType
 import pydrake.perception as mut
 
 from dope_system import DopeSystem
+from point_cloud_synthesis import PointCloudSynthesis
 from pose_refinement import PoseRefinement
 from perception_tools.visualization_utils import ThresholdArray
+from sklearn.neighbors import NearestNeighbors
 
 from robotlocomotion import image_array_t
 
@@ -44,12 +46,12 @@ image_files = {
 def CreateYcbObjectClutter():
     ycb_object_pairs = []
 
-    X_WCracker = _xyz_rpy([0.35, 0.15, 0.09], [0, -1.57, 4])
+    X_WCracker = _xyz_rpy([0.35, 0.14, 0.09], [0, -1.57, 4])
     ycb_object_pairs.append(
         ("drake/manipulation/models/ycb/sdf/003_cracker_box.sdf", X_WCracker))
 
     # The sugar box pose.
-    X_WSugar = _xyz_rpy([0.25, -0.2, 0.03], [0, 1.57, 3.14])
+    X_WSugar = _xyz_rpy([0.28, -0.17, 0.03], [0, 1.57, 3.14])
     ycb_object_pairs.append(
         ("drake/manipulation/models/ycb/sdf/004_sugar_box.sdf", X_WSugar))
 
@@ -59,13 +61,13 @@ def CreateYcbObjectClutter():
         ("drake/manipulation/models/ycb/sdf/005_tomato_soup_can.sdf", X_WSoup))
 
     # The mustard bottle pose.
-    X_WMustard = _xyz_rpy([0.45, -0.16, 0.07], [-1.57, 0, 3.3])
+    X_WMustard = _xyz_rpy([0.44, -0.16, 0.09], [-1.57, 0, 3.3])
     ycb_object_pairs.append(
         ("drake/manipulation/models/ycb/sdf/006_mustard_bottle.sdf",
          X_WMustard))
 
     # The gelatin box pose.
-    X_WGelatin = _xyz_rpy([0.35, -0.32, 0.1], [-1.57, 0, 3.7])
+    X_WGelatin = _xyz_rpy([0.35, -0.32, 0.1], [-1.57, 0, 2.5])
     ycb_object_pairs.append(
         ("drake/manipulation/models/ycb/sdf/009_gelatin_box.sdf", X_WGelatin))
 
@@ -75,6 +77,7 @@ def CreateYcbObjectClutter():
         ("drake/manipulation/models/ycb/sdf/010_potted_meat_can.sdf", X_WMeat))
 
     return ycb_object_pairs
+
 
 def SegmentArea(scene_points, scene_colors, model, model_image, init_pose):
     """
@@ -121,6 +124,7 @@ def SegmentArea(scene_points, scene_colors, model, model_image, init_pose):
     max_delta_y = np.abs(np.max(model[:, 1]) - np.min(model[:, 1]))
     max_delta_z = np.abs(np.max(model[:, 2]) - np.min(model[:, 2]))
 
+    # CHANGED FROM MAX
     max_delta = np.max([max_delta_x, max_delta_y, max_delta_z])
 
     init_x = init_pose.matrix()[0, 3]
@@ -133,7 +137,7 @@ def SegmentArea(scene_points, scene_colors, model, model_image, init_pose):
     y_min = init_y - max_delta
     y_max = init_y + max_delta
 
-    z_min = init_z - max_delta
+    z_min = max(init_z - max_delta, 0)
     z_max = init_z + max_delta
 
     x_indices = ThresholdArray(scene_points[:, 0], x_min, x_max)
@@ -144,17 +148,15 @@ def SegmentArea(scene_points, scene_colors, model, model_image, init_pose):
 
     return scene_points[indices, :], scene_colors[indices, :]
 
-def SegmentCrackerBox(scene_points, scene_colors, model, model_image, init_pose):
-    area_points, area_colors = SegmentArea(scene_points, scene_colors, model, model_image, init_pose)
+def SegmentColor(color_thresholds, area_points, area_colors, model, model_image, init_pose):
+    r_min = color_thresholds[0]
+    r_max = color_thresholds[1]
 
-    r_min = 0
-    r_max = 255
+    g_min = color_thresholds[2]
+    g_max = color_thresholds[3]
 
-    g_min = 0
-    g_max = 255
-
-    b_min = 0
-    b_max = 255
+    b_min = color_thresholds[4]
+    b_max = color_thresholds[5]
 
     r_indices = ThresholdArray(area_colors[:, 0], r_min, r_max)
     g_indices = ThresholdArray(area_colors[:, 1], g_min, g_max)
@@ -166,34 +168,67 @@ def SegmentCrackerBox(scene_points, scene_colors, model, model_image, init_pose)
     final_colors = area_colors[indices, :]
 
     return final_points, final_colors
+
+def PruneOutliers(points, colors, min_distance, num_neighbors, init_center=np.zeros(3), max_center_dist=3.0):
+    nbrs = NearestNeighbors(n_neighbors=num_neighbors).fit(np.copy(points))
+    distances, indices = nbrs.kneighbors(np.copy(points))
+
+    outliers = []
+    avg_dist = np.sum(distances, axis=1) / float(num_neighbors - 1)
+
+    for i in range(points.shape[0]):
+        center_dist = np.sqrt(np.sum((points[i] - init_center)**2))
+        if avg_dist[i] < min_distance and center_dist < max_center_dist:
+            outliers.append(i)
+
+    return np.copy(points)[outliers, :], np.copy(colors)[outliers, :]
+
+def SegmentCrackerBox(scene_points, scene_colors, model, model_image, init_pose):
+    return scene_points, scene_colors
+    # area_points, area_colors = SegmentArea(scene_points, scene_colors, model, model_image, init_pose)
+    #
+    # r_min = 100
+    # r_max = 255
+    #
+    # g_min = 0
+    # g_max = 255
+    #
+    # b_min = 0
+    # b_max = 255
+    #
+    # color_thresholds = [r_min, r_max, g_min, g_max, b_min, b_max]
+    #
+    # segmented_points, segmented_colors = SegmentColor(color_thresholds, area_points, area_colors, model, model_image, init_pose)
+    #
+    # final_points, final_colors = PruneOutliers(segmented_points, segmented_colors, 0.01, 100, init_pose.matrix()[:3, 3], 0.15)
+    #
+    # return final_points, final_colors
 
 def SegmentSugarBox(scene_points, scene_colors, model, model_image, init_pose):
-    area_points, area_colors = SegmentArea(scene_points, scene_colors, model, model_image, init_pose)
-
-    r_min = 0
-    r_max = 255
-
-    g_min = 0
-    g_max = 255
-
-    b_min = 0
-    b_max = 255
-
-    r_indices = ThresholdArray(area_colors[:, 0], r_min, r_max)
-    g_indices = ThresholdArray(area_colors[:, 1], g_min, g_max)
-    b_indices = ThresholdArray(area_colors[:, 2], b_min, b_max)
-
-    indices = reduce(np.intersect1d, (r_indices, g_indices, b_indices))
-
-    final_points = area_points[indices, :]
-    final_colors = area_colors[indices, :]
-
-    return final_points, final_colors
+    return scene_points, scene_colors
+    # area_points, area_colors = SegmentArea(scene_points, scene_colors, model, model_image, init_pose)
+    #
+    # r_min = 0
+    # r_max = 255
+    #
+    # g_min = 100
+    # g_max = 255
+    #
+    # b_min = 0
+    # b_max = 100
+    #
+    # color_thresholds = [r_min, r_max, g_min, g_max, b_min, b_max]
+    #
+    # segmented_points, segmented_colors = SegmentColor(color_thresholds, area_points, area_colors, model, model_image, init_pose)
+    #
+    # final_points, final_colors = PruneOutliers(segmented_points, segmented_colors, 0.01, 100, init_pose.matrix()[:3, 3], 0.11)
+    #
+    # return final_points, final_colors
 
 def SegmentSoupCan(scene_points, scene_colors, model, model_image, init_pose):
     area_points, area_colors = SegmentArea(scene_points, scene_colors, model, model_image, init_pose)
 
-    r_min = 0
+    r_min = 100
     r_max = 255
 
     g_min = 0
@@ -202,37 +237,31 @@ def SegmentSoupCan(scene_points, scene_colors, model, model_image, init_pose):
     b_min = 0
     b_max = 255
 
-    r_indices = ThresholdArray(area_colors[:, 0], r_min, r_max)
-    g_indices = ThresholdArray(area_colors[:, 1], g_min, g_max)
-    b_indices = ThresholdArray(area_colors[:, 2], b_min, b_max)
+    color_thresholds = [r_min, r_max, g_min, g_max, b_min, b_max]
 
-    indices = reduce(np.intersect1d, (r_indices, g_indices, b_indices))
+    segmented_points, segmented_colors = SegmentColor(color_thresholds, area_points, area_colors, model, model_image, init_pose)
 
-    final_points = area_points[indices, :]
-    final_colors = area_colors[indices, :]
+    final_points, final_colors = PruneOutliers(segmented_points, segmented_colors, 0.01, 20, init_pose.matrix()[:3, 3], 0.085)
 
     return final_points, final_colors
 
 def SegmentMustardBottle(scene_points, scene_colors, model, model_image, init_pose):
     area_points, area_colors = SegmentArea(scene_points, scene_colors, model, model_image, init_pose)
 
-    r_min = 0
+    r_min = 100
     r_max = 255
 
-    g_min = 0
+    g_min = 100
     g_max = 255
 
     b_min = 0
-    b_max = 255
+    b_max = 100
 
-    r_indices = ThresholdArray(area_colors[:, 0], r_min, r_max)
-    g_indices = ThresholdArray(area_colors[:, 1], g_min, g_max)
-    b_indices = ThresholdArray(area_colors[:, 2], b_min, b_max)
+    color_thresholds = [r_min, r_max, g_min, g_max, b_min, b_max]
 
-    indices = reduce(np.intersect1d, (r_indices, g_indices, b_indices))
+    segmented_points, segmented_colors = SegmentColor(color_thresholds, area_points, area_colors, model, model_image, init_pose)
 
-    final_points = area_points[indices, :]
-    final_colors = area_colors[indices, :]
+    final_points, final_colors = PruneOutliers(segmented_points, segmented_colors, 0.01, 40)
 
     return final_points, final_colors
 
@@ -248,37 +277,31 @@ def SegmentGelatinBox(scene_points, scene_colors, model, model_image, init_pose)
     b_min = 0
     b_max = 255
 
-    r_indices = ThresholdArray(area_colors[:, 0], r_min, r_max)
-    g_indices = ThresholdArray(area_colors[:, 1], g_min, g_max)
-    b_indices = ThresholdArray(area_colors[:, 2], b_min, b_max)
+    color_thresholds = [r_min, r_max, g_min, g_max, b_min, b_max]
 
-    indices = reduce(np.intersect1d, (r_indices, g_indices, b_indices))
+    segmented_points, segmented_colors = SegmentColor(color_thresholds, area_points, area_colors, model, model_image, init_pose)
 
-    final_points = area_points[indices, :]
-    final_colors = area_colors[indices, :]
+    final_points, final_colors = PruneOutliers(segmented_points, segmented_colors, 0.01, 20)
 
     return final_points, final_colors
 
 def SegmentMeatCan(scene_points, scene_colors, model, model_image, init_pose):
     area_points, area_colors = SegmentArea(scene_points, scene_colors, model, model_image, init_pose)
 
-    r_min = 0
-    r_max = 255
+    r_min = 20
+    r_max = 100
 
-    g_min = 0
+    g_min = 40
     g_max = 255
 
-    b_min = 0
+    b_min = 10
     b_max = 255
 
-    r_indices = ThresholdArray(area_colors[:, 0], r_min, r_max)
-    g_indices = ThresholdArray(area_colors[:, 1], g_min, g_max)
-    b_indices = ThresholdArray(area_colors[:, 2], b_min, b_max)
+    color_thresholds = [r_min, r_max, g_min, g_max, b_min, b_max]
 
-    indices = reduce(np.intersect1d, (r_indices, g_indices, b_indices))
+    segmented_points, segmented_colors = SegmentColor(color_thresholds, area_points, area_colors, model, model_image, init_pose)
 
-    final_points = area_points[indices, :]
-    final_colors = area_colors[indices, :]
+    final_points, final_colors = PruneOutliers(segmented_points, segmented_colors, 0.01, 30, init_pose.matrix()[:3, 3], 0.074)
 
     return final_points, final_colors
 
@@ -315,7 +338,10 @@ def main():
     pose_refinement_systems = {}
     for obj in ["cracker", "sugar", "soup", "mustard", "gelatin", "meat"]:
         pose_refinement_systems[obj] = builder.AddSystem(PoseRefinement(
-            camera_config_file, model_files[obj], image_files[obj], obj, segment_scene_function=seg_functions[obj]))
+            camera_config_file, model_files[obj], image_files[obj], obj, segment_scene_function=seg_functions[obj], viz=True))
+
+    # Create the PointCloudSynthesis system.
+    pc_synth = builder.AddSystem(PointCloudSynthesis(camera_config_file, True))
 
     # Use the right camera for DOPE.
     right_camera_info = pose_refinement_systems["cracker"].camera_configs["right_camera_info"]
@@ -328,17 +354,39 @@ def main():
     dope_system = builder.AddSystem(DopeSystem(weights_path, dope_config_file))
 
     # TODO(kmuhlrad): figure out if I need to combine point clouds
-    # Create the dut.
+    # Create the duts.
     # use scale factor of 1/1000 to convert mm to m
-    dut = builder.AddSystem(mut.DepthImageToPointCloud(
+    duts = {}
+    duts[pose_refinement_systems["cracker"].camera_configs["right_camera_serial"]] = builder.AddSystem(mut.DepthImageToPointCloud(
         right_camera_info, PixelType.kDepth16U, 1e-3,
+        fields=mut.BaseField.kXYZs | mut.BaseField.kRGBs))
+    duts[pose_refinement_systems["cracker"].camera_configs["left_camera_serial"]] = builder.AddSystem(mut.DepthImageToPointCloud(
+        pose_refinement_systems["cracker"].camera_configs["left_camera_info"], PixelType.kDepth16U, 1e-3,
+        fields=mut.BaseField.kXYZs | mut.BaseField.kRGBs))
+    duts[pose_refinement_systems["cracker"].camera_configs["middle_camera_serial"]] = builder.AddSystem(mut.DepthImageToPointCloud(
+        pose_refinement_systems["cracker"].camera_configs["middle_camera_info"], PixelType.kDepth16U, 1e-3,
         fields=mut.BaseField.kXYZs | mut.BaseField.kRGBs))
 
     # Connect the depth and rgb images to the dut
-    builder.Connect(station.GetOutputPort(right_name_prefix + "_depth_image"),
-                    dut.depth_image_input_port())
-    builder.Connect(station.GetOutputPort(right_name_prefix + "_rgb_image"),
-                    dut.color_image_input_port())
+    for name in station.get_camera_names():
+        builder.Connect(
+            station.GetOutputPort("camera_" + name + "_rgb_image"),
+            duts[name].color_image_input_port())
+        builder.Connect(
+            station.GetOutputPort("camera_" + name + "_depth_image"),
+            duts[name].depth_image_input_port())
+
+    builder.Connect(duts[pose_refinement_systems["cracker"].camera_configs["left_camera_serial"]].point_cloud_output_port(),
+                    pc_synth.GetInputPort("left_point_cloud"))
+    builder.Connect(duts[pose_refinement_systems["cracker"].camera_configs["middle_camera_serial"]].point_cloud_output_port(),
+                    pc_synth.GetInputPort("middle_point_cloud"))
+    builder.Connect(duts[pose_refinement_systems["cracker"].camera_configs["right_camera_serial"]].point_cloud_output_port(),
+                    pc_synth.GetInputPort("right_point_cloud"))
+
+    # builder.Connect(station.GetOutputPort(right_name_prefix + "_depth_image"),
+    #                 dut.depth_image_input_port())
+    # builder.Connect(station.GetOutputPort(right_name_prefix + "_rgb_image"),
+    #                 dut.color_image_input_port())
 
     # Connect the rgb images to the DopeSystem.
     builder.Connect(station.GetOutputPort(right_name_prefix + "_rgb_image"),
@@ -346,7 +394,7 @@ def main():
 
     # Connect the PoseRefinement systems.
     for pose_refinement in pose_refinement_systems.values():
-        builder.Connect(dut.point_cloud_output_port(),
+        builder.Connect(pc_synth.GetOutputPort("combined_point_cloud"),
                         pose_refinement.GetInputPort("point_cloud"))
         builder.Connect(dope_system.GetOutputPort("pose_bundle"),
                         pose_refinement.GetInputPort("pose_bundle"))
@@ -361,27 +409,6 @@ def main():
     else:
         ConnectDrakeVisualizer(builder, station.get_scene_graph(),
                                station.GetOutputPort("pose_bundle"))
-
-        # image_to_lcm_image_array = builder.AddSystem(ImageToLcmImageArrayT())
-        # image_to_lcm_image_array.set_name("converter")
-        # cam_port = (
-        #     image_to_lcm_image_array.DeclareImageInputPort[PixelType.kRgba8U](
-        #         "dope"))
-        # # builder.Connect(dope_system.GetOutputPort("annotated_rgb_image"),
-        # #                 cam_port)
-        # builder.Connect(station.GetOutputPort("camera_0_rgb_image"),
-        #                 cam_port)
-        #
-        # image_array_lcm_publisher = builder.AddSystem(
-        #     LcmPublisherSystem.Make(
-        #         channel="DRAKE_RGBD_CAMERA_IMAGES",
-        #         lcm_type=image_array_t,
-        #         lcm=None,
-        #         publish_period=0.1,
-        #         use_cpp_serializer=True))
-        # image_array_lcm_publisher.set_name("rgbd_publisher")
-        # builder.Connect(image_to_lcm_image_array.image_array_t_msg_output_port(),
-        #                 image_array_lcm_publisher.get_input_port(0))
 
     diagram = builder.Build()
     simulator = Simulator(diagram)
@@ -421,21 +448,73 @@ def main():
             print pose_bundle.get_name(i), X_WCamera.multiply(pose_bundle.get_pose(i))
 
     print("\n\nICP POSES")
+    colors = {
+        'cracker': 0x0dff80,
+        'sugar': 0xe8de0c,
+        'soup': 0xff6500,
+        'mustard': 0xd90ce8,
+        'gelatin': 0xffffff,
+        'meat': 0x0068ff
+    }
+    sizes = {
+        'cracker': [16.4/100., 21.34/100., 7.18/100.],
+        'sugar': [9.27/100., 17.63/100., 4.51/100.],
+        'soup': [6.77/100., 10.18/100., 6.77/100.],
+        'mustard': [9.6/100., 19.13/100., 5.82/100.],
+        'gelatin': [8.92/100., 7.31/100., 3/100.],
+        'meat': [10.16/100., 8.35/100., 5.76/100.]
+    }
+    icp_poses = {}
     #for obj_name in pose_refinement_systems:
-    for obj_name in ["mustard"]:
+    for obj_name in seg_functions:
+        import meshcat.geometry as g
         p_context = diagram.GetMutableSubsystemContext(
             pose_refinement_systems[obj_name], simulator.get_mutable_context())
-        mustard_pose = pose_refinement_systems[obj_name].GetOutputPort(
+        pose = pose_refinement_systems[obj_name].GetOutputPort(
             "X_WObject_refined").Eval(p_context)
-        print obj_name, mustard_pose
+        bounding_box = g.Box(sizes[obj_name])
+        material = g.MeshBasicMaterial(color=colors[obj_name])
+        mesh = g.Mesh(geometry=bounding_box, material=material)
+        meshcat.vis[obj_name].set_object(mesh)
+        meshcat.vis[obj_name].set_transform(pose.matrix())
+        print obj_name, pose
 
 
-    if args.meshcat:
-        import meshcat.geometry as g
-        mustard_box = g.Box([9.6/100., 19.13/100., 5.82/100.])
-        mustard_transform = mustard_pose.matrix()
-        meshcat.vis["mustard"].set_object(mustard_box)
-        meshcat.vis["mustard"].set_transform(mustard_transform)
+    # if args.meshcat:
+    #
+    #     cracker_box = g.Box([16.4/100., 21.34/100., 7.18/100.])
+    #     cracker_material = g.MeshBasicMaterial(color=[13/255., 255/255., 128/255.])
+    #     cracker = g.Mesh(geometry=cracker_box, material=cracker_material)
+    #     meshcat.vis["cracker"].set_object(cracker)
+    #     meshcat.vis["cracker"].set_transform(icp_poses["cracker"].matrix())
+    #
+    #     sugar_box = g.Box()
+    #     sugar_material = g.MeshBasicMaterial(color=0xffff00)
+    #     sugar = g.Mesh(geometry=sugar_box, material=sugar_material)
+    #     meshcat.vis["sugar"].set_object(sugar)
+    #     meshcat.vis["sugar"].set_transform(icp_poses["sugar"].matrix())
+    #
+    #     soup_box = g.Box()
+    #     soup_material = g.MeshBasicMaterial(color=0xff0000)
+    #     soup = g.Mesh(geometry=soup_box, material=soup_material)
+    #     meshcat.vis["soup"].set_object(soup)
+    #     meshcat.vis["soup"].set_transform(icp_poses["soup"].matrix())
+    #
+    #     mustard_box = g.Box([9.6/100., 19.13/100., 5.82/100.])
+    #     meshcat.vis["mustard"].set_object(mustard_box)
+    #     meshcat.vis["mustard"].set_transform(icp_poses["mustard"].matrix())
+    #
+    #     gelatin_box = g.Box([8.92/100., 7.31/100., 3/100.])
+    #     gelatin_material = g.MeshBasicMaterial(color=0xff0000)
+    #     gelatin = g.Mesh(geometry=gelatin_box, material=gelatin_material)
+    #     meshcat.vis["gelatin"].set_object(gelatin)
+    #     meshcat.vis["gelatin"].set_transform(icp_poses["gelatin"].matrix())
+    #
+    #     meat_box = g.Box([10.16/100., 8.35/100., 5.76/100.])
+    #     meat_material = g.MeshBasicMaterial(color=0x0000ff)
+    #     meat = g.Mesh(geometry=meat_box, material=meat_material)
+    #     meshcat.vis["meat"].set_object(meat)
+    #     meshcat.vis["meat"].set_transform(icp_poses["meat"].matrix())
 
     import cv2
     # Show the annotated image.

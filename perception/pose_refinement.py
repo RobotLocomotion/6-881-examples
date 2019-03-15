@@ -306,8 +306,10 @@ class PoseRefinement(LeafSystem):
         point_cloud = self.EvalAbstractInput(
             context, self.point_cloud_port.get_index()).get_value()
 
-        scene_points, scene_colors = self._TransformPointCloud(
-            point_cloud.xyzs(), point_cloud.rgbs())
+        # scene_points, scene_colors = self._TransformPointCloud(
+        #     point_cloud.xyzs(), point_cloud.rgbs())
+        scene_points = np.copy(point_cloud.xyzs()).T
+        scene_colors = np.copy(point_cloud.rgbs()).T
 
         segmented_scene_points, segmented_scene_colors = self.SegmentScene(
             scene_points, scene_colors, self.model, self.model_image, init_pose)
