@@ -4,15 +4,14 @@ import time
 from pydrake.examples.manipulation_station import (ManipulationStation,
                                     ManipulationStationHardwareInterface)
 from pydrake.geometry import SceneGraph
-from pydrake.multibody.multibody_tree.parsing import AddModelFromSdfFile
 from pydrake.systems.framework import DiagramBuilder
 from pydrake.systems.analysis import Simulator
 from pydrake.common.eigen_geometry import Isometry3
 from pydrake.systems.primitives import Demultiplexer, LogOutput
 
 
-from underactuated.meshcat_visualizer import MeshcatVisualizer
-# from pydrake.systems.meshcat_visualizer import MeshcatVisualizer
+# from underactuated.meshcat_visualizer import MeshcatVisualizer
+from pydrake.systems.meshcat_visualizer import MeshcatVisualizer
 from plan_runner.manipulation_station_plan_runner import ManipStationPlanRunner
 from plan_runner.manipulation_station_plan_runner_diagram import CreateManipStationPlanRunnerDiagram
 from plan_runner.plan_utils import *
@@ -33,12 +32,12 @@ class ManipulationStationSimulator:
         self.station = ManipulationStation(self.time_step)
         self.station.SetupDefaultStation()
         self.plant = self.station.get_mutable_multibody_plant()
-        if object_file_path is not None:
-            self.object = AddModelFromSdfFile(
-                file_name=object_file_path,
-                model_name="object",
-                plant=self.station.get_mutable_multibody_plant(),
-                scene_graph=self.station.get_mutable_scene_graph() )
+        # if object_file_path is not None:
+        #     self.object = AddModelFromSdfFile(
+        #         file_name=object_file_path,
+        #         model_name="object",
+        #         plant=self.station.get_mutable_multibody_plant(),
+        #         scene_graph=self.station.get_mutable_scene_graph() )
         self.station.Finalize()
 
         self.simulator = None
@@ -107,15 +106,12 @@ class ManipulationStationSimulator:
 
         # Add meshcat visualizer
         if is_visualizing:
-            scene_graph = self.station.get_mutable_scene_graph()
-            viz = MeshcatVisualizer(scene_graph,
-                                    is_drawing_contact_force = True,
-                                    plant = self.plant)
-            builder.AddSystem(viz)
+            print "VIS IS TRUE"
+            viz = builder.AddSystem(MeshcatVisualizer(self.station.get_scene_graph(), zmq_url="new", open_browser=True))
             builder.Connect(self.station.GetOutputPort("pose_bundle"),
-                            viz.GetInputPort("lcm_visualization"))
-            builder.Connect(self.station.GetOutputPort("contact_results"),
-                            viz.GetInputPort("contact_results"))
+                            viz.get_input_port(0))
+            # builder.Connect(self.station.GetOutputPort("contact_results"),
+            #                 viz.GetInputPort("contact_results"))
 
         # Add logger
         iiwa_position_command_log = LogOutput(demux.get_output_port(0), builder)
@@ -148,10 +144,10 @@ class ManipulationStationSimulator:
             self.station, simulator.get_mutable_context())
 
         # set initial state of the robot
-        self.station.SetIiwaPosition(q0_kuka, context)
-        self.station.SetIiwaVelocity(np.zeros(7), context)
-        self.station.SetWsgPosition(0.05, context)
-        self.station.SetWsgVelocity(0, context)
+        self.station.SetIiwaPosition(context, q0_kuka)
+        self.station.SetIiwaVelocity(context, np.zeros(7))
+        self.station.SetWsgPosition(context, 0.05)
+        self.station.SetWsgVelocity(context, 0)
 
         # set initial hinge angles of the cupboard.
         # setting hinge angle to exactly 0 or 90 degrees will result in intermittent contact
@@ -165,10 +161,10 @@ class ManipulationStationSimulator:
             context=self.station.GetMutableSubsystemContext(self.plant, context), angle=0.001)
 
         # set initial pose of the object
-        if self.object_base_link_name is not None:
-            self.plant.tree().SetFreeBodyPoseOrThrow(
-               self.plant.GetBodyByName(self.object_base_link_name, self.object),
-                self.X_WObject, self.station.GetMutableSubsystemContext(self.plant, context))
+        # if self.object_base_link_name is not None:
+        #     self.plant.SetFreeBodyPose(
+        #        self.plant.GetBodyByName(self.object_base_link_name, self.object),
+        #         self.X_WObject, self.station.GetMutableSubsystemContext(self.plant, context))
 
         simulator.set_publish_every_time_step(False)
         simulator.set_target_realtime_rate(real_time_rate)

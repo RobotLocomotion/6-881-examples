@@ -1,6 +1,6 @@
 from pydrake.trajectories import PiecewisePolynomial
 import numpy as np
-from pydrake.util.eigen_geometry import Isometry3, Quaternion
+from pydrake.common.eigen_geometry import Isometry3, Quaternion
 from pydrake.examples.manipulation_station import ManipulationStation
 import matplotlib.pyplot as plt
 
@@ -50,10 +50,10 @@ get relative transforms between EE frame (wsg gripper) and iiwa_link_7
 '''
 def GetL7EeTransform():
     plant = station.get_mutable_multibody_plant()
-    tree = plant.tree()
+    # tree = plant.tree()
 
     context_plant = plant.CreateDefaultContext()
-    X_L7E = tree.CalcRelativeTransform(
+    X_L7E = plant.CalcRelativeTransform(
         context_plant,
         frame_A=plant.GetFrameByName("iiwa_link_7"),
         frame_B=plant.GetFrameByName("body"))

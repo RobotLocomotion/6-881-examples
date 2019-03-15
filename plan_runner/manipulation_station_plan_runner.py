@@ -62,7 +62,7 @@ class ManipStationPlanRunner(LeafSystem):
         # create a multibodyplant containing the robot only, which is used for
         # jacobian calculations.
         self.plant_iiwa = station.get_controller_plant()
-        self.tree_iiwa = self.plant_iiwa.tree()
+        # self.plant_iiwa = self.plant_iiwa.tree()
         self.context_iiwa = self.plant_iiwa.CreateDefaultContext()
         self.l7_frame = self.plant_iiwa.GetFrameByName('iiwa_link_7')
 
@@ -148,11 +148,11 @@ class ManipStationPlanRunner(LeafSystem):
             if self.current_plan.xyz_offset is None:
                 # update self.context_iiwa
                 x_iiwa_mutable = \
-                    self.tree_iiwa.GetMutablePositionsAndVelocities(self.context_iiwa)
+                    self.plant_iiwa.GetMutablePositionsAndVelocities(self.context_iiwa)
                 x_iiwa_mutable[:7] = q_iiwa
 
                 # Pose of frame L7 in world frame
-                X_WL7 = self.tree_iiwa.CalcRelativeTransform(
+                X_WL7 = self.plant_iiwa.CalcRelativeTransform(
                     self.context_iiwa, frame_A=self.plant_iiwa.world_frame(),
                     frame_B=self.l7_frame)
 
@@ -169,13 +169,13 @@ class ManipStationPlanRunner(LeafSystem):
                 self.current_plan.type == PlanTypes["OpenLeftDoorPositionPlan"]:
             # update self.context_iiwa
             x_iiwa_mutable = \
-                self.tree_iiwa.GetMutablePositionsAndVelocities(self.context_iiwa)
+                self.plant_iiwa.GetMutablePositionsAndVelocities(self.context_iiwa)
             x_iiwa_mutable[:7] = q_iiwa
 
             Jv_WL7q, p_HrQ, R_L7L7r, R_WL7 = self.current_plan.CalcKinematics(
                 l7_frame=self.l7_frame,
                 world_frame=self.plant_iiwa.world_frame(),
-                tree_iiwa=self.tree_iiwa, context_iiwa=self.context_iiwa,
+                tree_iiwa=self.plant_iiwa, context_iiwa=self.context_iiwa,
                 t_plan=t_plan)
 
             # compute commands
