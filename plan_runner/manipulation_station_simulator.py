@@ -16,21 +16,18 @@ from plan_runner.manipulation_station_plan_runner import ManipStationPlanRunner
 from plan_runner.manipulation_station_plan_runner_diagram import CreateManipStationPlanRunnerDiagram
 from plan_runner.plan_utils import *
 
-X_WObject_default = Isometry3.Identity()
-X_WObject_default.set_translation([.6, 0, 0])
-
 
 class ManipulationStationSimulator:
     def __init__(self, time_step,
-                 object_file_path=None,
-                 object_base_link_name=None,
-                 X_WObject=X_WObject_default,):
-        self.object_base_link_name = object_base_link_name
+                 objects_and_poses=None):
         self.time_step = time_step
 
         # Finalize manipulation station by adding manipuland.
         self.station = ManipulationStation(self.time_step)
         self.station.SetupDefaultStation()
+        if objects_and_poses:
+            for model_file, X_WObject in objects_and_poses:
+                self.station.AddManipulandFromFile(model_file, X_WObject)
         self.plant = self.station.get_mutable_multibody_plant()
         # if object_file_path is not None:
         #     self.object = AddModelFromSdfFile(
@@ -42,9 +39,6 @@ class ManipulationStationSimulator:
 
         self.simulator = None
         self.plan_runner = None
-
-        # Initial pose of the object
-        self.X_WObject = X_WObject
 
     def RunSimulation(self, plan_list, gripper_setpoint_list,
                       extra_time=0, real_time_rate=1.0, q0_kuka=np.zeros(7), is_visualizing=True, sim_duration=None,
@@ -159,12 +153,6 @@ class ManipulationStationSimulator:
         right_hinge_joint = self.plant.GetJointByName("right_door_hinge")
         right_hinge_joint.set_angle(
             context=self.station.GetMutableSubsystemContext(self.plant, context), angle=0.001)
-
-        # set initial pose of the object
-        # if self.object_base_link_name is not None:
-        #     self.plant.SetFreeBodyPose(
-        #        self.plant.GetBodyByName(self.object_base_link_name, self.object),
-        #         self.X_WObject, self.station.GetMutableSubsystemContext(self.plant, context))
 
         simulator.set_publish_every_time_step(False)
         simulator.set_target_realtime_rate(real_time_rate)

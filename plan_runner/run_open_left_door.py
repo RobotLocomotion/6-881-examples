@@ -36,10 +36,7 @@ if __name__ == '__main__':
     object_file_path = FindResourceOrThrow(
         "drake/examples/manipulation_station/models/061_foam_brick.sdf")
 
-    manip_station_sim = ManipulationStationSimulator(
-        time_step=2e-3,
-        object_file_path=object_file_path,
-        object_base_link_name="base_link",)
+    manip_station_sim = ManipulationStationSimulator(time_step=2e-3)
 
     # Generate plans.
     plan_list = None

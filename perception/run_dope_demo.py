@@ -9,6 +9,7 @@ from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import DiagramBuilder
 from pydrake.systems.lcm import LcmPublisherSystem
 from pydrake.systems.meshcat_visualizer import MeshcatVisualizer
+from pydrake.systems.primitives import Demultiplexer, LogOutput
 from pydrake.systems.sensors import ImageToLcmImageArrayT, PixelType
 import pydrake.perception as mut
 
@@ -17,6 +18,11 @@ from point_cloud_synthesis import PointCloudSynthesis
 from pose_refinement import PoseRefinement
 from perception_tools.visualization_utils import ThresholdArray
 from sklearn.neighbors import NearestNeighbors
+
+from plan_runner.manipulation_station_simulator import ManipulationStationSimulator
+from plan_runner.manipulation_station_plan_runner import *
+from plan_runner.open_left_door import (GenerateOpenLeftDoorPlansByTrajectory,
+                                        GenerateOpenLeftDoorPlansByImpedanceOrPosition,)
 
 from robotlocomotion import image_array_t
 
@@ -326,6 +332,8 @@ def main():
     builder = DiagramBuilder()
 
     # Create the ManipulationStation.
+    # manip_station_sim = ManipulationStationSimulator(time_step=2e-3, objects_and_poses=CreateYcbObjectClutter())
+    # station = builder.AddSystem(manip_station_sim.station)
     station = builder.AddSystem(ManipulationStation())
     station.SetupDefaultStation()
     ycb_objects = CreateYcbObjectClutter()
@@ -338,10 +346,10 @@ def main():
     pose_refinement_systems = {}
     for obj in ["cracker", "sugar", "soup", "mustard", "gelatin", "meat"]:
         pose_refinement_systems[obj] = builder.AddSystem(PoseRefinement(
-            camera_config_file, model_files[obj], image_files[obj], obj, segment_scene_function=seg_functions[obj], viz=True))
+            camera_config_file, model_files[obj], image_files[obj], obj, segment_scene_function=seg_functions[obj], viz=False))
 
     # Create the PointCloudSynthesis system.
-    pc_synth = builder.AddSystem(PointCloudSynthesis(camera_config_file, True))
+    pc_synth = builder.AddSystem(PointCloudSynthesis(camera_config_file, False))
 
     # Use the right camera for DOPE.
     right_camera_info = pose_refinement_systems["cracker"].camera_configs["right_camera_info"]
@@ -383,11 +391,6 @@ def main():
     builder.Connect(duts[pose_refinement_systems["cracker"].camera_configs["right_camera_serial"]].point_cloud_output_port(),
                     pc_synth.GetInputPort("right_point_cloud"))
 
-    # builder.Connect(station.GetOutputPort(right_name_prefix + "_depth_image"),
-    #                 dut.depth_image_input_port())
-    # builder.Connect(station.GetOutputPort(right_name_prefix + "_rgb_image"),
-    #                 dut.color_image_input_port())
-
     # Connect the rgb images to the DopeSystem.
     builder.Connect(station.GetOutputPort(right_name_prefix + "_rgb_image"),
                     dope_system.GetInputPort("rgb_input_image"))
@@ -410,42 +413,70 @@ def main():
         ConnectDrakeVisualizer(builder, station.get_scene_graph(),
                                station.GetOutputPort("pose_bundle"))
 
+    # Plan Runner Stuff
+    # Generate plans.
+    plan_list, gripper_setpoint_list = GenerateOpenLeftDoorPlansByTrajectory()
+    plan_runner = ManipStationPlanRunner(
+        station=station,
+        kuka_plans=plan_list,
+        gripper_setpoint_list=gripper_setpoint_list)
+    duration_multiplier = plan_runner.kPlanDurationMultiplier
+
+    builder.AddSystem(plan_runner)
+    builder.Connect(plan_runner.GetOutputPort("gripper_setpoint"),
+                    station.GetInputPort("wsg_position"))
+    builder.Connect(plan_runner.GetOutputPort("force_limit"),
+                    station.GetInputPort("wsg_force_limit"))
+
+
+    demux = builder.AddSystem(Demultiplexer(14, 7))
+    builder.Connect(
+        plan_runner.GetOutputPort("iiwa_position_and_torque_command"),
+        demux.get_input_port(0))
+    builder.Connect(demux.get_output_port(0),
+                    station.GetInputPort("iiwa_position"))
+    builder.Connect(demux.get_output_port(1),
+                    station.GetInputPort("iiwa_feedforward_torque"))
+    builder.Connect(station.GetOutputPort("iiwa_position_measured"),
+                    plan_runner.GetInputPort("iiwa_position"))
+    builder.Connect(station.GetOutputPort("iiwa_velocity_estimated"),
+                    plan_runner.GetInputPort("iiwa_velocity"))
+
+
+    # Add logger
+    iiwa_position_command_log = LogOutput(demux.get_output_port(0), builder)
+    iiwa_position_command_log._DeclarePeriodicPublish(0.005)
+
+    iiwa_external_torque_log = LogOutput(
+        station.GetOutputPort("iiwa_torque_external"), builder)
+    iiwa_external_torque_log._DeclarePeriodicPublish(0.005)
+
+    iiwa_position_measured_log = LogOutput(
+        station.GetOutputPort("iiwa_position_measured"), builder)
+    iiwa_position_measured_log._DeclarePeriodicPublish(0.005)
+
+    plant_state_log = LogOutput(
+        station.GetOutputPort("plant_continuous_state"), builder)
+    plant_state_log._DeclarePeriodicPublish(0.005)
+
+    # build diagram
     diagram = builder.Build()
+
+    # construct simulator
     simulator = Simulator(diagram)
 
-    station_context = diagram.GetMutableSubsystemContext(
-        station, simulator.get_mutable_context())
-
-    station_context.FixInputPort(station.GetInputPort(
-        "iiwa_feedforward_torque").get_index(), np.zeros(7))
-
-    q0 = station.GetIiwaPosition(station_context)
-    station_context.FixInputPort(station.GetInputPort(
-        "iiwa_position").get_index(), q0)
-
-    station_context.FixInputPort(station.GetInputPort(
-        "wsg_position").get_index(), np.array([0.1]))
-
-    station_context.FixInputPort(station.GetInputPort(
-        "wsg_force_limit").get_index(), np.array([40.0]))
-
-    simulator.set_publish_every_time_step(False)
-    simulator.set_target_realtime_rate(1.0)
-    simulator.StepTo(0.1)
-
-    context = diagram.GetMutableSubsystemContext(
-        dope_system, simulator.get_mutable_context())
+    # context = diagram.GetMutableSubsystemContext(
+    #     dope_system, simulator.get_mutable_context())
 
     # Check the poses.
-
-    X_WCamera = pose_refinement_systems['cracker'].camera_configs["right_camera_pose_world"].multiply(
-        pose_refinement_systems['cracker'].camera_configs["right_camera_pose_internal"])
-
-    print("DOPE POSES")
-    pose_bundle = dope_system.GetOutputPort("pose_bundle").Eval(context)
-    for i in range(pose_bundle.get_num_poses()):
-        if pose_bundle.get_name(i):
-            print pose_bundle.get_name(i), X_WCamera.multiply(pose_bundle.get_pose(i))
+    # X_WCamera = pose_refinement_systems['cracker'].camera_configs["right_camera_pose_world"].multiply(
+    #     pose_refinement_systems['cracker'].camera_configs["right_camera_pose_internal"])
+    #
+    # print("DOPE POSES")
+    # pose_bundle = dope_system.GetOutputPort("pose_bundle").Eval(context)
+    # for i in range(pose_bundle.get_num_poses()):
+    #     if pose_bundle.get_name(i):
+    #         print pose_bundle.get_name(i), X_WCamera.multiply(pose_bundle.get_pose(i))
 
     print("\n\nICP POSES")
     colors = {
@@ -464,8 +495,6 @@ def main():
         'gelatin': [8.92/100., 7.31/100., 3/100.],
         'meat': [10.16/100., 8.35/100., 5.76/100.]
     }
-    icp_poses = {}
-    #for obj_name in pose_refinement_systems:
     for obj_name in seg_functions:
         import meshcat.geometry as g
         p_context = diagram.GetMutableSubsystemContext(
@@ -479,54 +508,34 @@ def main():
         meshcat.vis[obj_name].set_transform(pose.matrix())
         print obj_name, pose
 
+    station_context = diagram.GetMutableSubsystemContext(
+        station, simulator.get_mutable_context())
 
-    # if args.meshcat:
-    #
-    #     cracker_box = g.Box([16.4/100., 21.34/100., 7.18/100.])
-    #     cracker_material = g.MeshBasicMaterial(color=[13/255., 255/255., 128/255.])
-    #     cracker = g.Mesh(geometry=cracker_box, material=cracker_material)
-    #     meshcat.vis["cracker"].set_object(cracker)
-    #     meshcat.vis["cracker"].set_transform(icp_poses["cracker"].matrix())
-    #
-    #     sugar_box = g.Box()
-    #     sugar_material = g.MeshBasicMaterial(color=0xffff00)
-    #     sugar = g.Mesh(geometry=sugar_box, material=sugar_material)
-    #     meshcat.vis["sugar"].set_object(sugar)
-    #     meshcat.vis["sugar"].set_transform(icp_poses["sugar"].matrix())
-    #
-    #     soup_box = g.Box()
-    #     soup_material = g.MeshBasicMaterial(color=0xff0000)
-    #     soup = g.Mesh(geometry=soup_box, material=soup_material)
-    #     meshcat.vis["soup"].set_object(soup)
-    #     meshcat.vis["soup"].set_transform(icp_poses["soup"].matrix())
-    #
-    #     mustard_box = g.Box([9.6/100., 19.13/100., 5.82/100.])
-    #     meshcat.vis["mustard"].set_object(mustard_box)
-    #     meshcat.vis["mustard"].set_transform(icp_poses["mustard"].matrix())
-    #
-    #     gelatin_box = g.Box([8.92/100., 7.31/100., 3/100.])
-    #     gelatin_material = g.MeshBasicMaterial(color=0xff0000)
-    #     gelatin = g.Mesh(geometry=gelatin_box, material=gelatin_material)
-    #     meshcat.vis["gelatin"].set_object(gelatin)
-    #     meshcat.vis["gelatin"].set_transform(icp_poses["gelatin"].matrix())
-    #
-    #     meat_box = g.Box([10.16/100., 8.35/100., 5.76/100.])
-    #     meat_material = g.MeshBasicMaterial(color=0x0000ff)
-    #     meat = g.Mesh(geometry=meat_box, material=meat_material)
-    #     meshcat.vis["meat"].set_object(meat)
-    #     meshcat.vis["meat"].set_transform(icp_poses["meat"].matrix())
+    # set initial state of the robot
+    q0 = [0, 0, 0, -1.75, 0, 1.0, 0]
+    station.SetIiwaPosition(station_context, q0)
+    station.SetIiwaVelocity(station_context, np.zeros(7))
+    station.SetWsgPosition(station_context, 0.05)
+    station.SetWsgVelocity(station_context, 0)
 
-    import cv2
-    # Show the annotated image.
-    annotated_image = dope_system.GetOutputPort(
-        "annotated_rgb_image").Eval(context).data
-    cv2.imshow("dope image", cv2.cvtColor(annotated_image, cv2.COLOR_RGB2BGR))
-    cv2.waitKey(0)
+
+    simulator.set_publish_every_time_step(False)
+    simulator.set_target_realtime_rate(0.0) # go as fast as possible
+
+    # calculate starting time for all plans.
+    t_plan = GetPlanStartingTimes(plan_list)
+    extra_time = 2.0
+    sim_duration = t_plan[-1]*duration_multiplier + extra_time
+    print "simulation duration", sim_duration
+    simulator.Initialize()
+    simulator.StepTo(sim_duration)
+
+
 
 if __name__ == "__main__":
     main()  # This is what you would have, but the following is useful:
 
-    # These are temporary, for debugging, so meh for programming style.
+    # # These are temporary, for debugging, so meh for programming style.
     # import sys, trace
     #
     # # If there are segfaults, it's a good idea to always use stderr as it
