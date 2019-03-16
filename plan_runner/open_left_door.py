@@ -138,7 +138,7 @@ def GetHomeConfiguration(is_printing=True):
     return prog.GetSolution(ik_scene.q())
 
 
-def GenerateApproachHandlePlans(InterpolateOrientation, is_printing=True):
+def GenerateApproachHandlePlans(InterpolateOrientation, is_printing=True, q0=None):
     """
     Returns a list of Plans that move the end effector from its home position to
     the left door handle. Also returns the corresponding gripper setpoints and IK solutions.
@@ -158,7 +158,7 @@ def GenerateApproachHandlePlans(InterpolateOrientation, is_printing=True):
     p_WQ_start = p_WQ_home
     p_WQ_end = p_WC_handle
     qtraj_move_to_handle, q_knots_full = InverseKinPointwise(
-        p_WQ_start, p_WQ_end, duration=5.0,
+        p_WQ_start, p_WQ_end, duration=2.5,
         num_knot_points=num_knot_points, q_initial_guess=q_home_full,
         InterpolatePosition=InterpolateStraightLine,
         InterpolateOrientation=InterpolateOrientation,
@@ -225,12 +225,13 @@ def AddOpenDoorFullyPlans(plan_list, gripper_setpoint_list):
     """
     # Add zero order old to open gripper
     plan_open_gripper = JointSpacePlanRelative(
-        duration=2.0, delta_q=np.zeros(7))
+        duration=1.0, delta_q=np.zeros(7))
     plan_list.append(plan_open_gripper)
     gripper_setpoint_list.append(0.03)
 
     # Add plans to push the door open after pulling the handle
-    xyz_durations = [5., 10., 10.]
+    #xyz_durations = [5., 10., 10.]
+    xyz_durations = [1.25, 2.5, 2.5]
     xyz_gripper_setpoint = [0.03, 0.05, 0.02, ]
     delta_xyz = np.zeros((3, 3))
     delta_xyz[0] = [-0.03, 0, 0]
@@ -249,27 +250,27 @@ def AddOpenDoorFullyPlans(plan_list, gripper_setpoint_list):
 
     # plan from current position to pre-swing
     plan_pre_swing = JointSpacePlanGoToTarget(
-        duration=4.0,
+        duration=2.0,
         q_target=q_pre_swing)
     plan_list.append(plan_pre_swing)
     gripper_setpoint_list.append(0.10)
 
     # swing to open the door
     plan_swing = JointSpacePlan(
-        ConnectPointsWithCubicPolynomial(q_pre_swing, q_post_swing, duration=6.0))
+        ConnectPointsWithCubicPolynomial(q_pre_swing, q_post_swing, duration=3.0))
     plan_list.append(plan_swing)
     gripper_setpoint_list.append(0.10)
 
     # return to home pose
     plan_return_home = JointSpacePlan(
-        ConnectPointsWithCubicPolynomial(q_post_swing, q_home, duration=6.0))
+        ConnectPointsWithCubicPolynomial(q_post_swing, q_home, duration=3.0))
     plan_list.append(plan_return_home)
     gripper_setpoint_list.append(0.10)
 
 
 # global variables used for all door-opening plans.
 handle_angle_end = np.pi/180*50
-open_door_duration = 10.
+open_door_duration = 5. #10.
 
 def GenerateOpenLeftDoorPlansByTrajectory(is_printing=True):
     """
@@ -299,7 +300,7 @@ def GenerateOpenLeftDoorPlansByTrajectory(is_printing=True):
     return plan_list, gripper_setpoint_list
 
 def GenerateOpenLeftDoorPlansByImpedanceOrPosition(
-        open_door_method="Impedance", is_open_fully=False, is_printing=True):
+        open_door_method="Impedance", is_open_fully=False, is_printing=True, q0=None):
     """
     Creates iiwa plans and gripper set points that
     - starts at a home configuration,
@@ -314,7 +315,7 @@ def GenerateOpenLeftDoorPlansByImpedanceOrPosition(
 
     # Move end effector towards the left door handle.
     plan_list, gripper_setpoint_list, q_final_full = \
-        GenerateApproachHandlePlans(ReturnConstantOrientation, is_printing=is_printing)
+        GenerateApproachHandlePlans(ReturnConstantOrientation, is_printing=is_printing, q0=q0)
 
     if open_door_method == "Impedance":
         # Add the position/impedance plan that opens the left door.

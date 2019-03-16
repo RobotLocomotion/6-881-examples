@@ -19,7 +19,7 @@ from pose_refinement import PoseRefinement
 from perception_tools.visualization_utils import ThresholdArray
 from sklearn.neighbors import NearestNeighbors
 
-from plan_runner.manipulation_station_simulator import ManipulationStationSimulator
+from plan_runner.demo_plans import GeneratePickAndPlaceObjectPlans
 from plan_runner.manipulation_station_plan_runner import *
 from plan_runner.open_left_door import (GenerateOpenLeftDoorPlansByTrajectory,
                                         GenerateOpenLeftDoorPlansByImpedanceOrPosition,)
@@ -415,7 +415,16 @@ def main():
 
     # Plan Runner Stuff
     # Generate plans.
-    plan_list, gripper_setpoint_list = GenerateOpenLeftDoorPlansByTrajectory()
+
+    # TODO(kmuhlrad): change this between runs
+    ########################################
+    q0 = np.array([0, -0.2136, 0, -2.094, 0, 0.463, 0]) #[0, 0, 0, -1.75, 0, 1.0, 0]
+    # plan_list, gripper_setpoint_list = GenerateOpenLeftDoorPlansByImpedanceOrPosition(
+    #     open_door_method="Impedance", is_open_fully=True, q0=q0)
+    plan_list, gripper_setpoint_list = GeneratePickAndPlaceObjectPlans(
+        [0.40, -0.07, 0.08], [0.40, -0.07, 0.2], is_printing=True)
+    ########################################
+
     plan_runner = ManipStationPlanRunner(
         station=station,
         kuka_plans=plan_list,
@@ -443,21 +452,15 @@ def main():
                     plan_runner.GetInputPort("iiwa_velocity"))
 
 
-    # Add logger
+    # Add loggers
+    publish_period = 0.001
     iiwa_position_command_log = LogOutput(demux.get_output_port(0), builder)
-    iiwa_position_command_log._DeclarePeriodicPublish(0.005)
+    iiwa_position_command_log._DeclarePeriodicPublish(publish_period)
 
-    iiwa_external_torque_log = LogOutput(
-        station.GetOutputPort("iiwa_torque_external"), builder)
-    iiwa_external_torque_log._DeclarePeriodicPublish(0.005)
+    wsg_position_command_log = LogOutput(
+        plan_runner.GetOutputPort("gripper_setpoint"), builder)
+    wsg_position_command_log._DeclarePeriodicPublish(publish_period)
 
-    iiwa_position_measured_log = LogOutput(
-        station.GetOutputPort("iiwa_position_measured"), builder)
-    iiwa_position_measured_log._DeclarePeriodicPublish(0.005)
-
-    plant_state_log = LogOutput(
-        station.GetOutputPort("plant_continuous_state"), builder)
-    plant_state_log._DeclarePeriodicPublish(0.005)
 
     # build diagram
     diagram = builder.Build()
@@ -512,12 +515,10 @@ def main():
         station, simulator.get_mutable_context())
 
     # set initial state of the robot
-    q0 = [0, 0, 0, -1.75, 0, 1.0, 0]
     station.SetIiwaPosition(station_context, q0)
     station.SetIiwaVelocity(station_context, np.zeros(7))
     station.SetWsgPosition(station_context, 0.05)
     station.SetWsgVelocity(station_context, 0)
-
 
     simulator.set_publish_every_time_step(False)
     simulator.set_target_realtime_rate(0.0) # go as fast as possible
@@ -529,6 +530,18 @@ def main():
     print "simulation duration", sim_duration
     simulator.Initialize()
     simulator.StepTo(sim_duration)
+
+    output_dict = {}
+    output_dict["q0"] = q0
+    output_dict["iiwa_position_t"] = iiwa_position_command_log.sample_times()
+    output_dict["iiwa_position_data"] = iiwa_position_command_log.data()
+    output_dict["wsg_position_t"] = wsg_position_command_log.sample_times()
+    output_dict["wsg_position_data"] = wsg_position_command_log.data()
+
+    import pickle
+    import time
+    with open("teleop_log_%d.pickle" % (time.time()*1000*1000), "wb") as f:
+        pickle.dump(output_dict, f)
 
 
 

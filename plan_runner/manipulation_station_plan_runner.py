@@ -35,14 +35,14 @@ class ManipStationPlanRunner(LeafSystem):
 
         # Add a zero order hold to hold the current position of the robot
         kuka_plans.insert(0, JointSpacePlanRelative(
-            duration=3.0, delta_q=np.zeros(7)))
+            duration=1.0, delta_q=np.zeros(7)))
         gripper_setpoint_list.insert(0, 0.055)
 
         if len(kuka_plans) > 1:
             # Insert to the beginning of plan_list a plan that moves the robot from its
             # current position to plan_list[0].traj.value(0)
             kuka_plans.insert(1, JointSpacePlanGoToTarget(
-                duration=6.0, q_target=kuka_plans[1].traj.value(0).flatten()))
+                duration=3.0, q_target=kuka_plans[1].traj.value(0).flatten()))
             gripper_setpoint_list.insert(0, 0.055)
 
         self.gripper_setpoint_list = gripper_setpoint_list
@@ -96,7 +96,7 @@ class ManipStationPlanRunner(LeafSystem):
             self._DeclareVectorOutputPort(
                 "force_limit", BasicVector(1), self._CalcForceLimitOutput)
 
-        self.kPlanDurationMultiplier = 1.1
+        self.kPlanDurationMultiplier = 1.0 #1.1
 
     def _GetCurrentPlan(self, context):
         t = context.get_time()
