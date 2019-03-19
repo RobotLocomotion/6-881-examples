@@ -16,7 +16,7 @@ Files under the `models/` directory are serialized numpy arrays (`.npy` files) u
 
 - `sim.yml` contains the configuration of the three cameras defined in [`ManipulationStation`](https://drake.mit.edu/doxygen_cxx/classdrake_1_1examples_1_1manipulation__station_1_1_manipulation_station.html).
 - `station_1.yml` contains the configuration of the three cameras on the physical station closest to the chalkboard.
-- [TODO] `station_2.yml` contains the configuration of the three cameras on the physical station closest to the chalkboard.
+- `station_2.yml` contains the configuration of the three cameras on the physical station closest to the chalkboard.
 
 ## Using This Module
 To run the example of getting the pose of the foam brick, execute `run_perception_system.py` with a camera configuration file. For example:
@@ -45,3 +45,17 @@ $ DISPLAY=:100 jupyter notebook --ip 0.0.0.0 --port 8080 --allow-root --no-brows
 ```
 
 Follow the instructions in the terminal to open up the notebook, which can be run just like in the psets.
+
+## DOPE
+`dope_system.py` is a Drake `System` that can run [DOPE](https://github.com/NVlabs/Deep_Object_Pose). The arguments are a configuration file, and a path to a directory of weight files. `config/dope_config_sim.yml` is an example config file set up for a Drake `RgbdCamera`. The `DopeSystem` has one input port that takes in an RGB image. It also has two output ports: one that outputs a `PoseBundle` of any recognized objects, and one that produces a new RGB image with bounding boxes drawn over every detected object. See the [DOPE documentation](https://github.com/NVlabs/Deep_Object_Pose) for more details about DOPE.
+
+Note that currently DOPE does not work in the docker image, since it requires GPU access to run. It also does not have CI tests. You must download the weights yourself, following the DOPE documentation instructions.
+
+The code was modified from NVidia's provided code, and is licensed under a [Creative-Commons Attribution-NonCommercial-ShareAlike 4.0 International](https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode) license. Any modifications were indicated in the relevant files.
+
+### Running DOPE
+There is an example of using `DopeSystem` with a `ManipulationStation` at the end of `dope_system.py`. Just run it via
+```sh
+python dope_system.py
+```
+Poses of recognized objects will be printed in the terminal window, and a separate window should pop up containing the annotated RGB image.
