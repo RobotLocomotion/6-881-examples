@@ -1,3 +1,11 @@
+# Copyright (c) 2018 NVIDIA Corporation. All rights reserved.
+# This work is licensed under a Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License.
+# https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode
+
+# List of changes made:
+# - Removed ROS calls and replaced them with Drake System calls
+# - Small style changes to align with PEP8
+
 import numpy as np
 import cv2
 import os
@@ -35,7 +43,7 @@ class DopeSystem(LeafSystem):
     """
     def __init__(self, weights_path, config_file):
         """
-        @param weights a path to a directory containing model weights.
+        @param weights_path a path to a directory containing model weights.
         @param config_file a path to a .yaml file with the DOPE configuration.
         """
         LeafSystem.__init__(self)
@@ -46,7 +54,7 @@ class DopeSystem(LeafSystem):
                 print(
                     "Loading DOPE parameters from '{}'...".format(config_file))
                 self.params = yaml.load(stream)
-                print('    Parameters loaded.')
+                print("    Parameters loaded.")
             except yaml.YAMLError as exc:
                 print(exc)
 
@@ -57,9 +65,8 @@ class DopeSystem(LeafSystem):
         self.image_data = None
         self.g_draw = None
 
-        # TODO(kmuhlrad): Use camera config file instead of hardcoded values.
-        camera_width = 848
-        camera_height = 480
+        camera_width = self.params["camera_settings"]["width"]
+        camera_height = self.params["camera_settings"]["height"]
 
         self.rgb_input_image = self._DeclareAbstractInputPort(
             "rgb_input_image", AbstractValue.Make(
@@ -83,13 +90,13 @@ class DopeSystem(LeafSystem):
         self.draw_colors = {}
 
         # Initialize parameters
-        matrix_camera = np.zeros((3,3))
+        matrix_camera = np.zeros((3, 3))
         matrix_camera[0, 0] = self.params["camera_settings"]['fx']
         matrix_camera[1, 1] = self.params["camera_settings"]['fy']
         matrix_camera[0, 2] = self.params["camera_settings"]['cx']
         matrix_camera[1, 2] = self.params["camera_settings"]['cy']
         matrix_camera[2, 2] = 1
-        dist_coeffs = np.zeros((4,1))
+        dist_coeffs = np.zeros((4, 1))
 
         if "dist_coeffs" in self.params["camera_settings"]:
             dist_coeffs = np.array(
@@ -101,17 +108,17 @@ class DopeSystem(LeafSystem):
         self.config_detect.vertex = 1
         self.config_detect.threshold = 0.5
         self.config_detect.softmax = 1000
-        self.config_detect.thresh_angle = self.params['thresh_angle']
-        self.config_detect.thresh_map = self.params['thresh_map']
-        self.config_detect.sigma = self.params['sigma']
+        self.config_detect.thresh_angle = self.params["thresh_angle"]
+        self.config_detect.thresh_map = self.params["thresh_map"]
+        self.config_detect.sigma = self.params["sigma"]
         self.config_detect.thresh_points = self.params["thresh_points"]
 
         # For each object to detect, load network model, and create PNP solver.
-        for model in self.params['weights']:
+        for model in self.params["weights"]:
             self.models[model] = \
                 ModelData(
                     model,
-                    os.path.join(weights_path, self.params['weights'][model])
+                    os.path.join(weights_path, self.params["weights"][model])
                 )
             self.models[model].load_net_model()
 
@@ -121,63 +128,60 @@ class DopeSystem(LeafSystem):
                 CuboidPNPSolver(
                     model,
                     matrix_camera,
-                    Cuboid3d(self.params['dimensions'][model]),
+                    Cuboid3d(self.params["dimensions"][model]),
                     dist_coeffs=dist_coeffs
                 )
 
-    def _DrawLine(self, point1, point2, lineColor, lineWidth):
-        '''Draws line on image.'''
-        if not point1 is None and point2 is not None:
-            self.g_draw.line([point1,point2], fill=lineColor, width=lineWidth)
+    def _DrawLine(self, point1, point2, line_color, line_width):
+        """Draws line on image."""
+        if point1 is not None and point2 is not None:
+            self.g_draw.line(
+                [point1, point2], fill=line_color, width=line_width)
 
-    def _DrawDot(self, point, pointColor, pointRadius):
-        '''Draws dot (filled circle) on image.'''
+    def _DrawDot(self, point, point_color, point_radius):
+        """Draws dot (filled circle) on image."""
         if point is not None:
             xy = [
-                point[0] - pointRadius,
-                point[1] - pointRadius,
-                point[0] + pointRadius,
-                point[1] + pointRadius
+                point[0] - point_radius,
+                point[1] - point_radius,
+                point[0] + point_radius,
+                point[1] + point_radius
             ]
-            self.g_draw.ellipse(xy,
-                           fill=pointColor,
-                           outline=pointColor
-                           )
+            self.g_draw.ellipse(xy, fill=point_color, outline=point_color)
 
     def _DrawCube(self, points, color=(255, 0, 0)):
-        '''
+        """
         Draws a cube with a thick solid line across the front top edge and an X
         on the top face.
-        '''
+        """
 
-        lineWidthForDrawing = 2
+        line_width_for_drawing = 2
 
         # Draw the front.
-        self._DrawLine(points[0], points[1], color, lineWidthForDrawing)
-        self._DrawLine(points[1], points[2], color, lineWidthForDrawing)
-        self._DrawLine(points[3], points[2], color, lineWidthForDrawing)
-        self._DrawLine(points[3], points[0], color, lineWidthForDrawing)
+        self._DrawLine(points[0], points[1], color, line_width_for_drawing)
+        self._DrawLine(points[1], points[2], color, line_width_for_drawing)
+        self._DrawLine(points[3], points[2], color, line_width_for_drawing)
+        self._DrawLine(points[3], points[0], color, line_width_for_drawing)
 
         # Draw the back.
-        self._DrawLine(points[4], points[5], color, lineWidthForDrawing)
-        self._DrawLine(points[6], points[5], color, lineWidthForDrawing)
-        self._DrawLine(points[6], points[7], color, lineWidthForDrawing)
-        self._DrawLine(points[4], points[7], color, lineWidthForDrawing)
+        self._DrawLine(points[4], points[5], color, line_width_for_drawing)
+        self._DrawLine(points[6], points[5], color, line_width_for_drawing)
+        self._DrawLine(points[6], points[7], color, line_width_for_drawing)
+        self._DrawLine(points[4], points[7], color, line_width_for_drawing)
 
         # Draw the sides.
-        self._DrawLine(points[0], points[4], color, lineWidthForDrawing)
-        self._DrawLine(points[7], points[3], color, lineWidthForDrawing)
-        self._DrawLine(points[5], points[1], color, lineWidthForDrawing)
-        self._DrawLine(points[2], points[6], color, lineWidthForDrawing)
+        self._DrawLine(points[0], points[4], color, line_width_for_drawing)
+        self._DrawLine(points[7], points[3], color, line_width_for_drawing)
+        self._DrawLine(points[5], points[1], color, line_width_for_drawing)
+        self._DrawLine(points[2], points[6], color, line_width_for_drawing)
 
         # Draw the dots.
-        self._DrawDot(points[0], pointColor=color, pointRadius=4)
-        self._DrawDot(points[1], pointColor=color, pointRadius=4)
+        self._DrawDot(points[0], point_color=color, point_radius=4)
+        self._DrawDot(points[1], point_color=color, point_radius=4)
 
         # Draw an "X" on the top.
-        self._DrawLine(points[0], points[5], color, lineWidthForDrawing)
-        self._DrawLine(points[1], points[4], color, lineWidthForDrawing)
-
+        self._DrawLine(points[0], points[5], color, line_width_for_drawing)
+        self._DrawLine(points[1], points[4], color, line_width_for_drawing)
 
     def _RunDope(self, context):
         g_img = self.EvalAbstractInput(
@@ -198,7 +202,7 @@ class DopeSystem(LeafSystem):
                 self.config_detect
             )
 
-            # Publish pose and overlay cube on image.
+            # Calculate pose and overlay cube on image.
             for i_r, result in enumerate(results):
                 if result["location"] is None:
                     continue
@@ -215,9 +219,9 @@ class DopeSystem(LeafSystem):
                 self.poses[m] = X_WObject.GetAsIsometry3()
 
                 # Draw the cube.
-                if None not in result['projected_points']:
+                if None not in result["projected_points"]:
                     points2d = []
-                    for pair in result['projected_points']:
+                    for pair in result["projected_points"]:
                         points2d.append(tuple(pair))
                     self._DrawCube(points2d, self.draw_colors[m])
 
@@ -245,8 +249,8 @@ if __name__ == "__main__":
     builder = DiagramBuilder()
 
     # Create the DopeSystem.
-    weights_path = '/home/amazon/catkin_ws/src/dope/weights'
-    config_file = '/home/amazon/catkin_ws/src/dope/config/config_pose.yaml'
+    weights_path = "/home/amazon/catkin_ws/src/dope/weights"
+    config_file = "/home/amazon/catkin_ws/src/dope/config/config_pose.yaml"
     dope_system = builder.AddSystem(DopeSystem(weights_path, config_file))
 
     # Create the ManipulationStation.
