@@ -19,13 +19,14 @@ from pose_refinement import PoseRefinement
 from perception_tools.visualization_utils import ThresholdArray
 from sklearn.neighbors import NearestNeighbors
 
-from plan_runner.demo_plans import GeneratePickAndPlaceObjectPlans
+from plan_runner.demo_plans import GeneratePickAndPlaceObjectPlans, GeneratePickAndPlaceObjectTaskPlans
 from plan_runner.manipulation_station_plan_runner import *
 from plan_runner.open_left_door import (GenerateOpenLeftDoorPlansByTrajectory,
                                         GenerateOpenLeftDoorPlansByImpedanceOrPosition,)
 
 from robotlocomotion import image_array_t
 
+from pydrake.math import RigidTransform
 
 model_file_base_path = "models/"
 model_files = {
@@ -62,23 +63,45 @@ def CreateYcbObjectClutter():
         ("drake/manipulation/models/ycb/sdf/004_sugar_box.sdf", X_WSugar))
 
     # The tomato soup can pose.
-    X_WSoup = _xyz_rpy([0.40, -0.07, 0.03], [-1.57, 0, 3.14])
+    # After moving:
+    X_WSoup = RigidTransform(np.array([[-9.99982403e-01,  1.01915004e-16,  5.93238370e-03,  8.55377622e-01],
+     [-5.93238370e-03, -4.44089210e-16, -9.99982403e-01, -2.38764523e-03],
+     [-9.93129190e-17, -1.00000000e+00,  4.44089210e-16,  3.42077514e-01],
+    [ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,  1.00000000e+00]]))
+
+    # X_WSoup = _xyz_rpy([0.40, -0.07, 0.03], [-1.57, 0, 3.14])
     ycb_object_pairs.append(
         ("drake/manipulation/models/ycb/sdf/005_tomato_soup_can.sdf", X_WSoup))
 
     # The mustard bottle pose.
-    X_WMustard = _xyz_rpy([0.44, -0.16, 0.09], [-1.57, 0, 3.3])
+    # X_WMustard = _xyz_rpy([0.44, -0.16, 0.09], [-1.57, 0, 3.3])
+    '''
+    [[-9.69829800e-01  1.44285253e-04 -2.43782975e-01  4.45281370e-01]
+ [ 2.43782981e-01  2.15142685e-05 -9.69829809e-01 -1.61993966e-01]
+ [-1.34687327e-04 -9.99999989e-01 -5.60394677e-05  8.22916025e-02]
+ [ 0.00000000e+00  0.00000000e+00  0.00000000e+00  1.00000000e+00]]
+
+    '''
+    X_WMustard = RigidTransform(np.array([[-9.69829800e-01,  1.44285253e-04, -2.43782975e-01,  4.45281370e-01],
+                                          [ 2.43782981e-01,  2.15142685e-05, -9.69829809e-01, -1.61993966e-01],
+                                         [-1.34687327e-04, -9.99999989e-01, -5.60394677e-05,  8.22916025e-02],
+                                            [ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,  1.00000000e+00]]))
     ycb_object_pairs.append(
         ("drake/manipulation/models/ycb/sdf/006_mustard_bottle.sdf",
          X_WMustard))
 
     # The gelatin box pose.
-    X_WGelatin = _xyz_rpy([0.35, -0.32, 0.1], [-1.57, 0, 2.5])
-    ycb_object_pairs.append(
-        ("drake/manipulation/models/ycb/sdf/009_gelatin_box.sdf", X_WGelatin))
+    # X_WGelatin = _xyz_rpy([0.35, -0.32, 0.1], [-1.57, 0, 2.5])
+    # ycb_object_pairs.append(
+    #     ("drake/manipulation/models/ycb/sdf/009_gelatin_box.sdf", X_WGelatin))
 
     # The potted meat can pose.
     X_WMeat = _xyz_rpy([0.35, -0.32, 0.03], [-1.57, 0, 2.5])
+    # X_WMeat = RigidTransform(np.array([[-9.93764499e-01, -7.63278329e-17, -1.11499422e-01,  8.67166894e-01],
+    #  [ 1.11499422e-01, -2.22044605e-16, -9.93764499e-01, -1.33921891e-02],
+    #  [ 6.24500451e-17, -1.00000000e+00,  1.11022302e-16,  6.25261549e-02],
+    # [ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,  1.00000000e+00]]))
+
     ycb_object_pairs.append(
         ("drake/manipulation/models/ycb/sdf/010_potted_meat_can.sdf", X_WMeat))
 
@@ -232,24 +255,58 @@ def SegmentSugarBox(scene_points, scene_colors, model, model_image, init_pose):
     # return final_points, final_colors
 
 def SegmentSoupCan(scene_points, scene_colors, model, model_image, init_pose):
-    area_points, area_colors = SegmentArea(scene_points, scene_colors, model, model_image, init_pose)
+    max_delta_x = np.abs(np.max(model[:, 0]) - np.min(model[:, 0]))
+    max_delta_y = np.abs(np.max(model[:, 1]) - np.min(model[:, 1]))
+    max_delta_z = np.abs(np.max(model[:, 2]) - np.min(model[:, 2]))
 
-    r_min = 100
-    r_max = 255
+    # farther away from camera means more noise
+    max_delta =  2 * np.max([max_delta_x, max_delta_y, max_delta_z])
 
-    g_min = 0
-    g_max = 255
+    init_x = init_pose.matrix()[0, 3]
+    init_y = init_pose.matrix()[1, 3]
+    init_z = init_pose.matrix()[2, 3]
 
-    b_min = 0
-    b_max = 255
+    x_min = init_x - max_delta
+    x_max = init_x + max_delta
 
-    color_thresholds = [r_min, r_max, g_min, g_max, b_min, b_max]
+    y_min = init_y - max_delta
+    y_max = init_y + max_delta
 
-    segmented_points, segmented_colors = SegmentColor(color_thresholds, area_points, area_colors, model, model_image, init_pose)
+    # second shelf of the cabinet
+    z_min = max(init_z - max_delta, 0)
+    z_max = init_z + max_delta
 
-    final_points, final_colors = PruneOutliers(segmented_points, segmented_colors, 0.01, 20, init_pose.matrix()[:3, 3], 0.085)
+    x_indices = ThresholdArray(scene_points[:, 0], x_min, x_max)
+    y_indices = ThresholdArray(scene_points[:, 1], y_min, y_max)
+    z_indices = ThresholdArray(scene_points[:, 2], z_min, z_max)
 
-    return final_points, final_colors
+    indices = reduce(np.intersect1d, (x_indices, y_indices, z_indices))
+
+    area_points, area_colors = scene_points[indices, :], scene_colors[indices, :]
+
+    z_min = 0.292
+    z_max = 0.6
+
+    z_indices = ThresholdArray(area_points[:, 2], z_min, z_max)
+
+    return area_points[z_indices, :], area_colors[z_indices, :]
+
+    # r_min = 100
+    # r_max = 255
+    #
+    # g_min = 0
+    # g_max = 255
+    #
+    # b_min = 0
+    # b_max = 255
+    #
+    # color_thresholds = [r_min, r_max, g_min, g_max, b_min, b_max]
+    #
+    # segmented_points, segmented_colors = SegmentColor(color_thresholds, area_points, area_colors, model, model_image, init_pose)
+    #
+    # final_points, final_colors = PruneOutliers(segmented_points, segmented_colors, 0.01, 20, init_pose.matrix()[:3, 3], 0.085)
+    #
+    # return final_points, final_colors
 
 def SegmentMustardBottle(scene_points, scene_colors, model, model_image, init_pose):
     area_points, area_colors = SegmentArea(scene_points, scene_colors, model, model_image, init_pose)
@@ -292,31 +349,61 @@ def SegmentGelatinBox(scene_points, scene_colors, model, model_image, init_pose)
     return final_points, final_colors
 
 def SegmentMeatCan(scene_points, scene_colors, model, model_image, init_pose):
-    area_points, area_colors = SegmentArea(scene_points, scene_colors, model, model_image, init_pose)
+    max_delta_x = np.abs(np.max(model[:, 0]) - np.min(model[:, 0]))
+    max_delta_y = np.abs(np.max(model[:, 1]) - np.min(model[:, 1]))
+    max_delta_z = np.abs(np.max(model[:, 2]) - np.min(model[:, 2]))
 
-    r_min = 20
-    r_max = 100
+    # farther away from camera means more noise
+    max_delta =  2.5 * np.max([max_delta_x, max_delta_y, max_delta_z])
 
-    g_min = 40
-    g_max = 255
+    init_x = init_pose.matrix()[0, 3]
+    init_y = init_pose.matrix()[1, 3]
+    init_z = init_pose.matrix()[2, 3]
 
-    b_min = 10
-    b_max = 255
+    # bottom shelf of cabinet
+    x_min = max(init_x - max_delta, 0.65)
+    x_max = init_x + max_delta
 
-    color_thresholds = [r_min, r_max, g_min, g_max, b_min, b_max]
+    y_min = max(init_y - max_delta, -0.2)
+    y_max = init_y + max_delta
 
-    segmented_points, segmented_colors = SegmentColor(color_thresholds, area_points, area_colors, model, model_image, init_pose)
+    z_min = max(init_z - max_delta, 0.03)
+    z_max = min(init_z + max_delta, 0.25)
 
-    final_points, final_colors = PruneOutliers(segmented_points, segmented_colors, 0.01, 30, init_pose.matrix()[:3, 3], 0.074)
+    x_indices = ThresholdArray(scene_points[:, 0], x_min, x_max)
+    y_indices = ThresholdArray(scene_points[:, 1], y_min, y_max)
+    z_indices = ThresholdArray(scene_points[:, 2], z_min, z_max)
 
-    return final_points, final_colors
+    indices = reduce(np.intersect1d, (x_indices, y_indices, z_indices))
+
+    area_points, area_colors = scene_points[indices, :], scene_colors[indices, :]
+
+    return area_points, area_colors
+
+
+    # r_min = 20
+    # r_max = 100
+    #
+    # g_min = 40
+    # g_max = 255
+    #
+    # b_min = 10
+    # b_max = 255
+    #
+    # color_thresholds = [r_min, r_max, g_min, g_max, b_min, b_max]
+    #
+    # segmented_points, segmented_colors = SegmentColor(color_thresholds, area_points, area_colors, model, model_image, init_pose)
+    #
+    # final_points, final_colors = PruneOutliers(segmented_points, segmented_colors, 0.01, 30, init_pose.matrix()[:3, 3], 0.074)
+    #
+    # return final_points, final_colors
 
 seg_functions = {
     'cracker': SegmentCrackerBox,
     'sugar': SegmentSugarBox,
     'soup': SegmentSoupCan,
     'mustard': SegmentMustardBottle,
-    'gelatin': SegmentGelatinBox,
+    # 'gelatin': SegmentGelatinBox,
     'meat': SegmentMeatCan,
 }
 
@@ -344,9 +431,9 @@ def main():
     # Create the PoseRefinement systems.
     camera_config_file = '/home/amazon/6-881-examples/perception/config/sim.yml'
     pose_refinement_systems = {}
-    for obj in ["cracker", "sugar", "soup", "mustard", "gelatin", "meat"]:
+    for obj in ["cracker", "sugar", "soup", "mustard", "meat"]:
         pose_refinement_systems[obj] = builder.AddSystem(PoseRefinement(
-            camera_config_file, model_files[obj], image_files[obj], obj, segment_scene_function=seg_functions[obj], viz=False))
+            camera_config_file, model_files[obj], image_files[obj], obj, segment_scene_function=seg_functions[obj], viz=(obj=="meat")))
 
     # Create the PointCloudSynthesis system.
     pc_synth = builder.AddSystem(PointCloudSynthesis(camera_config_file, False))
@@ -419,10 +506,14 @@ def main():
     # TODO(kmuhlrad): change this between runs
     ########################################
     q0 = np.array([0, -0.2136, 0, -2.094, 0, 0.463, 0]) #[0, 0, 0, -1.75, 0, 1.0, 0]
+    p_WQ_home = np.array([0.5, 0, 0.41])
+    p_WQ_place = np.array([0.1, -0.07, -0.1])
+    p_WQ_pick = np.array([0.1, 0, 0]) #p_WQ_home + np.array([0.1, 0, 0])
+    # [0.40, -0.07, 0.08]
     # plan_list, gripper_setpoint_list = GenerateOpenLeftDoorPlansByImpedanceOrPosition(
     #     open_door_method="Impedance", is_open_fully=True, q0=q0)
-    plan_list, gripper_setpoint_list = GeneratePickAndPlaceObjectPlans(
-        [0.40, -0.07, 0.08], [0.40, -0.07, 0.2], is_printing=True)
+    plan_list, gripper_setpoint_list = GeneratePickAndPlaceObjectTaskPlans(
+        p_WQ_pick, p_WQ_place ,is_printing=True)
     ########################################
 
     plan_runner = ManipStationPlanRunner(
@@ -468,18 +559,50 @@ def main():
     # construct simulator
     simulator = Simulator(diagram)
 
-    # context = diagram.GetMutableSubsystemContext(
-    #     dope_system, simulator.get_mutable_context())
+    station_context = diagram.GetMutableSubsystemContext(
+        station, simulator.get_mutable_context())
+
+    # set initial state of the robot
+    station.SetIiwaPosition(station_context, q0)
+    station.SetIiwaVelocity(station_context, np.zeros(7))
+    station.SetWsgPosition(station_context, 0.05)
+    station.SetWsgVelocity(station_context, 0)
+
+    # Door now starts open
+    left_hinge_joint = station.get_multibody_plant().GetJointByName("left_door_hinge")
+    left_hinge_joint.set_angle(station_context, angle=np.pi/2)
+    right_hinge_joint = station.get_multibody_plant().GetJointByName("right_door_hinge")
+    right_hinge_joint.set_angle(station_context, angle=-np.pi/2)
+
+    simulator.set_publish_every_time_step(False)
+    simulator.set_target_realtime_rate(0.0) # go as fast as possible
+
+    simulator.Initialize()
+    simulator.StepTo(2.0)
+
+    # import cv2
+    context = diagram.GetMutableSubsystemContext(
+        dope_system, simulator.get_mutable_context())
+    # annotated_image = dope_system.GetOutputPort(
+    #     "annotated_rgb_image").Eval(context).data
+    # cv2.imshow("dope image", cv2.cvtColor(annotated_image, cv2.COLOR_RGB2BGR))
+    # cv2.waitKey(0)
 
     # Check the poses.
-    # X_WCamera = pose_refinement_systems['cracker'].camera_configs["right_camera_pose_world"].multiply(
-    #     pose_refinement_systems['cracker'].camera_configs["right_camera_pose_internal"])
-    #
-    # print("DOPE POSES")
-    # pose_bundle = dope_system.GetOutputPort("pose_bundle").Eval(context)
-    # for i in range(pose_bundle.get_num_poses()):
-    #     if pose_bundle.get_name(i):
-    #         print pose_bundle.get_name(i), X_WCamera.multiply(pose_bundle.get_pose(i))
+    X_WCamera = pose_refinement_systems['cracker'].camera_configs["right_camera_pose_world"].multiply(
+        pose_refinement_systems['cracker'].camera_configs["right_camera_pose_internal"])
+
+    print("DOPE POSES")
+    pose_bundle = dope_system.GetOutputPort("pose_bundle").Eval(context)
+    for i in range(pose_bundle.get_num_poses()):
+        if pose_bundle.get_name(i) == "meat":
+            import meshcat.geometry as g
+            print pose_bundle.get_name(i), X_WCamera.multiply(pose_bundle.get_pose(i))
+            bounding_box = g.Box([10.16/100., 8.35/100., 5.76/100.])
+            material = g.MeshBasicMaterial(color=0xffffff)
+            mesh = g.Mesh(geometry=bounding_box, material=material)
+            meshcat.vis["dope"].set_object(mesh)
+            meshcat.vis["dope"].set_transform(X_WCamera.multiply(pose_bundle.get_pose(i)).matrix())
 
     print("\n\nICP POSES")
     colors = {
@@ -487,7 +610,7 @@ def main():
         'sugar': 0xe8de0c,
         'soup': 0xff6500,
         'mustard': 0xd90ce8,
-        'gelatin': 0xffffff,
+        # 'gelatin': 0xffffff,
         'meat': 0x0068ff
     }
     sizes = {
@@ -495,10 +618,10 @@ def main():
         'sugar': [9.27/100., 17.63/100., 4.51/100.],
         'soup': [6.77/100., 10.18/100., 6.77/100.],
         'mustard': [9.6/100., 19.13/100., 5.82/100.],
-        'gelatin': [8.92/100., 7.31/100., 3/100.],
+        # 'gelatin': [8.92/100., 7.31/100., 3/100.],
         'meat': [10.16/100., 8.35/100., 5.76/100.]
     }
-    for obj_name in seg_functions:
+    for obj_name in ["soup", "mustard", "meat"]:
         import meshcat.geometry as g
         p_context = diagram.GetMutableSubsystemContext(
             pose_refinement_systems[obj_name], simulator.get_mutable_context())
@@ -509,39 +632,36 @@ def main():
         mesh = g.Mesh(geometry=bounding_box, material=material)
         meshcat.vis[obj_name].set_object(mesh)
         meshcat.vis[obj_name].set_transform(pose.matrix())
-        print obj_name, pose
+        print obj_name, pose.matrix().tolist()
 
-    station_context = diagram.GetMutableSubsystemContext(
-        station, simulator.get_mutable_context())
 
-    # set initial state of the robot
-    station.SetIiwaPosition(station_context, q0)
-    station.SetIiwaVelocity(station_context, np.zeros(7))
-    station.SetWsgPosition(station_context, 0.05)
-    station.SetWsgVelocity(station_context, 0)
-
-    simulator.set_publish_every_time_step(False)
-    simulator.set_target_realtime_rate(0.0) # go as fast as possible
+    import cv2
+    # context = diagram.GetMutableSubsystemContext(
+    #     dope_system, simulator.get_mutable_context())
+    annotated_image = dope_system.GetOutputPort(
+        "annotated_rgb_image").Eval(context).data
+    cv2.imshow("dope image", cv2.cvtColor(annotated_image, cv2.COLOR_RGB2BGR))
+    cv2.waitKey(0)
 
     # calculate starting time for all plans.
-    t_plan = GetPlanStartingTimes(plan_list)
-    extra_time = 2.0
-    sim_duration = t_plan[-1]*duration_multiplier + extra_time
-    print "simulation duration", sim_duration
-    simulator.Initialize()
-    simulator.StepTo(sim_duration)
-
-    output_dict = {}
-    output_dict["q0"] = q0
-    output_dict["iiwa_position_t"] = iiwa_position_command_log.sample_times()
-    output_dict["iiwa_position_data"] = iiwa_position_command_log.data()
-    output_dict["wsg_position_t"] = wsg_position_command_log.sample_times()
-    output_dict["wsg_position_data"] = wsg_position_command_log.data()
-
-    import pickle
-    import time
-    with open("teleop_log_%d.pickle" % (time.time()*1000*1000), "wb") as f:
-        pickle.dump(output_dict, f)
+    # t_plan = GetPlanStartingTimes(plan_list)
+    # extra_time = 2.0
+    # sim_duration = t_plan[-1]*duration_multiplier + extra_time
+    # print "simulation duration", sim_duration
+    # simulator.Initialize()
+    # simulator.StepTo(sim_duration)
+    #
+    # output_dict = {}
+    # output_dict["q0"] = q0
+    # output_dict["iiwa_position_t"] = iiwa_position_command_log.sample_times()
+    # output_dict["iiwa_position_data"] = iiwa_position_command_log.data()
+    # output_dict["wsg_position_t"] = wsg_position_command_log.sample_times()
+    # output_dict["wsg_position_data"] = wsg_position_command_log.data()
+    #
+    # import pickle
+    # import time
+    # with open("teleop_log_%d.pickle" % (time.time()*1000*1000), "wb") as f:
+    #     pickle.dump(output_dict, f)
 
 
 

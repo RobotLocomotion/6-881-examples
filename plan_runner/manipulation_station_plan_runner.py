@@ -38,12 +38,12 @@ class ManipStationPlanRunner(LeafSystem):
             duration=1.0, delta_q=np.zeros(7)))
         gripper_setpoint_list.insert(0, 0.055)
 
-        if len(kuka_plans) > 1:
-            # Insert to the beginning of plan_list a plan that moves the robot from its
-            # current position to plan_list[0].traj.value(0)
-            kuka_plans.insert(1, JointSpacePlanGoToTarget(
-                duration=3.0, q_target=kuka_plans[1].traj.value(0).flatten()))
-            gripper_setpoint_list.insert(0, 0.055)
+        # if len(kuka_plans) > 1:
+        #     # Insert to the beginning of plan_list a plan that moves the robot from its
+        #     # current position to plan_list[0].traj.value(0)
+        #     kuka_plans.insert(1, JointSpacePlanGoToTarget(
+        #         duration=3.0, q_target=kuka_plans[1].traj.value(0).flatten()))
+        #     gripper_setpoint_list.insert(0, 0.055)
 
         self.gripper_setpoint_list = gripper_setpoint_list
         self.kuka_plans_list = kuka_plans

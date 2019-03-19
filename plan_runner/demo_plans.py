@@ -136,6 +136,45 @@ def GetHomeConfiguration(is_printing=True):
         print result
     return prog.GetSolution(ik_scene.q())
 
+def GeneratePickAndPlaceObjectTaskPlans(p_WC_object_start, p_WC_object_end, is_printing=True):
+    """
+    Returns a list of Plans that move the end effector from its home position to
+    the left door handle. Also returns the corresponding gripper setpoints and IK solutions.
+
+    @param InterpolateOrientation: a function passed to InverseKinPointwise, which returns the desired
+        end effector orienttion along the trajectory.
+    """
+
+    GRIPPER_OPEN = 0.08
+    GRIPPER_CLOSE = 0.005
+    duration = 10.0
+
+    gripper_setpoint_list = []
+    plan_list = []
+
+    xyz_gripper_setpoint = [GRIPPER_OPEN, GRIPPER_CLOSE, GRIPPER_CLOSE, GRIPPER_CLOSE, GRIPPER_OPEN]
+    xyz_durations = [duration]*len(xyz_gripper_setpoint)
+    delta_xyz = np.zeros((len(xyz_durations), 3))
+    delta_xyz[0] = p_WC_object_start
+    delta_xyz[1] = -p_WC_object_start
+    rpy = np.zeros((len(xyz_durations), 3))
+    rpy[0] = [0, np.pi / 180 * 175, 0]
+    rpy[1] = [0, np.pi / 180 * 175, 0]
+    rpy[2] = [0, np.pi / 180 * 175, 0]
+    rpy[3] = [0, np.pi / 180 * 135, 0]
+    rpy[4] = [0, np.pi / 180 * 135, 0]
+
+    for i in range(len(xyz_durations)):
+        xyz_traj = ConnectPointsWithCubicPolynomial(
+            np.zeros(3), delta_xyz[i], xyz_durations[i])
+        plan_list.append(IiwaTaskSpacePlan(
+            duration=xyz_durations[i],
+            trajectory=xyz_traj,
+            R_WEa_ref=RollPitchYaw(rpy[i]).ToRotationMatrix(),
+            p_EQ=p_EQ))
+        gripper_setpoint_list.append(xyz_gripper_setpoint[i])
+
+    return plan_list, gripper_setpoint_list
 
 def GeneratePickAndPlaceObjectPlans(p_WC_object_start, p_WC_object_end, is_printing=True):
     """
@@ -148,6 +187,8 @@ def GeneratePickAndPlaceObjectPlans(p_WC_object_start, p_WC_object_end, is_print
 
     GRIPPER_OPEN = 0.02
     GRIPPER_CLOSE = 0.005
+
+    duration = 10.0
 
     q_home_full = GetHomeConfiguration(is_printing)
 
@@ -166,11 +207,11 @@ def GeneratePickAndPlaceObjectPlans(p_WC_object_start, p_WC_object_end, is_print
     q_traj_list = []
     gripper_setpoint_list = []
 
-    # move to grasp left door handle
+    # move to grasp object
     p_WQ_start = p_WQ_home
     p_WQ_end = p_WC_object_start
     qtraj, q_knots_full = InverseKinPointwise(
-        p_WQ_start, p_WQ_end, duration=5.0,
+        p_WQ_start, p_WQ_end, duration=duration,
         num_knot_points=num_knot_points, q_initial_guess=q_home_full,
         InterpolatePosition=InterpolateStraightLine,
         InterpolateOrientation=InterpolateOrientation,
@@ -190,7 +231,7 @@ def GeneratePickAndPlaceObjectPlans(p_WC_object_start, p_WC_object_end, is_print
     p_WQ_start = p_WC_object_start
     p_WQ_end = p_WQ_home
     qtraj, q_knots_full = InverseKinPointwise(
-        p_WQ_start, p_WQ_end, duration=5.0,
+        p_WQ_start, p_WQ_end, duration=duration,
         num_knot_points=num_knot_points, q_initial_guess=q_knots_full[-1],
         InterpolatePosition=InterpolateStraightLine,
         InterpolateOrientation=InterpolateOrientation,
@@ -203,7 +244,7 @@ def GeneratePickAndPlaceObjectPlans(p_WC_object_start, p_WC_object_end, is_print
     p_WQ_start = p_WQ_home
     p_WQ_end = p_WC_object_end
     qtraj, q_knots_full = InverseKinPointwise(
-        p_WQ_start, p_WQ_end, duration=5.0,
+        p_WQ_start, p_WQ_end, duration=duration,
         num_knot_points=num_knot_points, q_initial_guess=q_knots_full[-1],
         InterpolatePosition=InterpolateStraightLine,
         InterpolateOrientation=InterpolateOrientation,
@@ -216,7 +257,7 @@ def GeneratePickAndPlaceObjectPlans(p_WC_object_start, p_WC_object_end, is_print
     p_WQ_start = p_WC_object_end
     p_WQ_end = p_WQ_home
     qtraj, q_knots_full = InverseKinPointwise(
-        p_WQ_start, p_WQ_end, duration=5.0,
+        p_WQ_start, p_WQ_end, duration=duration,
         num_knot_points=num_knot_points, q_initial_guess=q_knots_full[-1],
         InterpolatePosition=InterpolateStraightLine,
         InterpolateOrientation=InterpolateOrientation,
@@ -237,5 +278,5 @@ def GeneratePickAndPlaceObjectPlans(p_WC_object_start, p_WC_object_end, is_print
         plan_list.append(JointSpacePlan(q_traj))
 
     # initial guess for the next IK
-    q_final_full = q_knots_full[-1]
+    # q_final_full = q_knots_full[-1]
     return plan_list, gripper_setpoint_list #, q_final_full
