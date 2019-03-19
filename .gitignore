@@ -8,5 +8,6 @@
 *.gz
 perception/saved_point_clouds/*.npy
 *.npy
+*.pth
 statistics/
 temp/

@@ -249,8 +249,8 @@ if __name__ == "__main__":
     builder = DiagramBuilder()
 
     # Create the DopeSystem.
-    weights_path = "/home/amazon/catkin_ws/src/dope/weights"
-    config_file = "/home/amazon/catkin_ws/src/dope/config/config_pose.yaml"
+    weights_path = "weights/"
+    config_file = "config/dope_config_sim.yml"
     dope_system = builder.AddSystem(DopeSystem(weights_path, config_file))
 
     # Create the ManipulationStation.
