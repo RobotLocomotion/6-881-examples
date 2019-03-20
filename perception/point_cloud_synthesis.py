@@ -12,12 +12,11 @@ class PointCloudSynthesis(LeafSystem):
 
     def __init__(self, config_file, viz=False):
         """
-        # TODO(kmuhlrad): update this if it becomes a thing
-        A system that takes in 3 Drake PointClouds and ImageRgba8U from
-        RGBDCameras and determines the pose of an object in them. The user must
-        supply a segmentation function and pose alignment to determine the pose.
-        If these functions aren't supplied, the returned pose will always be the
-        4x4 identity matrix.
+        # TODO(kmuhlrad): make having RGBs optional.
+        A system that takes in N point clouds and N Isometry3 transforms that
+        put each point cloud in world frame. The system returns one point cloud
+        combining all of the transformed point clouds. Each point cloud must
+        have XYZs and RGBs.
 
         @param config_file str. A path to a .yml configuration file for the
             cameras.
@@ -25,32 +24,33 @@ class PointCloudSynthesis(LeafSystem):
             as serialized numpy arrays.
 
         @system{
-          @input_port{left_point_cloud},
-          @input_port{middle_point_cloud},
-          @input_port{right_point_cloud},
+          @input_port{point_cloud_id0}
+          @input_port{X_WPC_id0}
+          .
+          .
+          .
+          @input_port{point_cloud_idN}
+          @input_port{X_WPC_idN}
           @output_port{combined_point_cloud}
         }
         """
         LeafSystem.__init__(self)
 
-        # fields=mut.BaseFields.kXYZs | mut.BaseFields.kRGBs
-        self.left_depth = self._DeclareAbstractInputPort(
-            "left_point_cloud", AbstractValue.Make(mut.PointCloud()))
-        self.middle_depth = self._DeclareAbstractInputPort(
-            "middle_point_cloud", AbstractValue.Make(mut.PointCloud()))
-        self.right_depth = self._DeclareAbstractInputPort(
-            "right_point_cloud", AbstractValue.Make(mut.PointCloud()))
+        self._LoadConfigFile(config_file)
+        self.viz = viz
 
+        self.input_ports = {}
+
+        for id in self.camera_configs:
+            self.input_ports[id] = self._DeclareAbstractInputPort(
+                "point_cloud_" + id, AbstractValue.Make(mut.PointCloud()))
+
+        output_fields = mut.Fields(mut.BaseField.kXYZs | mut.BaseField.kRGBs)
         self._DeclareAbstractOutputPort("combined_point_cloud",
                                         lambda: AbstractValue.Make(
                                             mut.PointCloud(
-                                                fields=mut.Fields(
-                                                    mut.BaseField.kXYZs | mut.BaseField.kRGBs))),
+                                                fields=output_fields)),
                                         self._DoCalcOutput)
-
-        self._LoadConfigFile(config_file)
-
-        self.viz = viz
 
     def _LoadConfigFile(self, config_file):
         with open(config_file, 'r') as stream:
@@ -60,11 +60,12 @@ class PointCloudSynthesis(LeafSystem):
                 for camera in config:
                     serial_no, X_WCamera, X_CameraDepth, camera_info = \
                         self._ParseCameraConfig(config[camera])
-                    self.camera_configs[camera + "_serial"] = str(serial_no)
-                    self.camera_configs[camera + "_pose_world"] = X_WCamera
-                    self.camera_configs[camera + "_pose_internal"] = \
+                    id = str(serial_no)
+                    self.camera_configs[id] = {}
+                    self.camera_configs[id]["camera_pose_world"] = X_WCamera
+                    self.camera_configs[id]["camera_pose_internal"] = \
                         X_CameraDepth
-                    self.camera_configs[camera + "_info"] = camera_info
+                    self.camera_configs[id]["camera_info"] = camera_info
             except yaml.YAMLError as exc:
                 print "could not parse config file"
                 print exc
@@ -104,83 +105,55 @@ class PointCloudSynthesis(LeafSystem):
 
         return serial_no, X_WCamera, X_CameraDepth, camera_info
 
+    def _AlignPointClouds(self, context):
+        points = {}
+        colors = {}
 
-    def _ExtractPointCloud(self, context):
-        left_point_cloud = self.EvalAbstractInput(
-            context, self.left_depth.get_index()).get_value()
-        middle_point_cloud = self.EvalAbstractInput(
-            context, self.middle_depth.get_index()).get_value()
-        right_point_cloud = self.EvalAbstractInput(
-            context, self.right_depth.get_index()).get_value()
+        for id in self.camera_configs:
+            point_cloud = self.EvalAbstractInput(
+                context, self.input_ports[id].get_index()).get_value()
 
-        left_points = np.array(left_point_cloud.xyzs())
-        left_colors = np.array(left_point_cloud.rgbs())
+            colors[id] = point_cloud.rgbs()
 
-        middle_points = np.array(middle_point_cloud.xyzs())
-        middle_colors = np.array(middle_point_cloud.rgbs())
+            # Make a homogenous version of the points.
+            points_h = np.vstack((point_cloud.xyzs(),
+                                  np.ones((1, point_cloud.xyzs().shape[1]))))
 
-        right_points = np.array(right_point_cloud.xyzs())
-        right_colors = np.array(right_point_cloud.rgbs())
+            X_WDepth = self.camera_configs[id]["camera_pose_world"].dot(
+                self.camera_configs[id]["camera_pose_internal"])
+            points_transformed = X_WDepth.dot(points_h)
 
-        if self.viz:
-            np.save("left_points", left_points.T)
-            np.save("left_colors", left_colors.T)
-            np.save("middle_points", middle_points.T)
-            np.save("middle_colors", middle_colors.T)
-            np.save("right_points", right_points.T)
-            np.save("right_colors", right_colors.T)
+            points[id] = points_transformed[:3, :]
 
-        return self._AlignPointClouds(left_points,
-                                      left_colors,
-                                      middle_points,
-                                      middle_colors,
-                                      right_points,
-                                      right_colors)
+        # Combine all the points and colors into two arrays.
+        scene_points = None
+        scene_colors = None
 
-    def _AlignPointClouds(self, left_points, left_colors,
-                          middle_points, middle_colors,
-                          right_points, right_colors):
-        lh = np.ones((4, left_points.shape[1]))
-        lh[:3, :] = np.copy(left_points)
+        for id in points:
+            if scene_points is None:
+                scene_points = points[id]
+            else:
+                scene_points = np.hstack((points[id], scene_points))
 
-        X_WDepth = self.camera_configs["left_camera_pose_world"].dot(
-            self.camera_configs["left_camera_pose_internal"])
-        left_points_transformed = X_WDepth.dot(lh)
+            if scene_colors is None:
+                scene_colors = colors[id]
+            else:
+                scene_colors = np.hstack((colors[id], scene_colors))
 
-        mh = np.ones((4, middle_points.shape[1]))
-        mh[:3, :] = np.copy(middle_points)
+        valid_indices = np.logical_not(np.isnan(scene_points))
 
-        X_WDepth = self.camera_configs["middle_camera_pose_world"].dot(
-            self.camera_configs["middle_camera_pose_internal"])
-        middle_points_transformed = X_WDepth.dot(mh)
+        scene_points = scene_points[:, valid_indices[0, :]]
+        scene_colors = scene_colors[:, valid_indices[0, :]]
 
-        rh = np.ones((4, right_points.shape[1]))
-        rh[:3, :] = np.copy(right_points)
-
-        X_WDepth = self.camera_configs["right_camera_pose_world"].dot(
-            self.camera_configs["right_camera_pose_internal"])
-        right_points_transformed = X_WDepth.dot(rh)
-
-        scene_points = np.hstack((left_points_transformed[:3, :],
-                                  middle_points_transformed[:3, :],
-                                  right_points_transformed[:3, :]))
-        scene_colors = np.hstack((left_colors, middle_colors, right_colors))
-
-        nan_indices = np.logical_not(np.isnan(scene_points))
-
-        scene_points = scene_points[:, nan_indices[0, :]]
-        scene_colors = scene_colors[:, nan_indices[0, :]]
-
-        return scene_points.T, scene_colors.T
-
+        return scene_points, scene_colors
 
     def _DoCalcOutput(self, context, output):
-        scene_points, scene_colors = self._ExtractPointCloud(context)
+        scene_points, scene_colors = self._AlignPointClouds(context)
 
         if self.viz:
             np.save("scene_points", scene_points)
             np.save("scene_colors", scene_colors)
 
-        output.get_mutable_value().resize(scene_points.shape[0])
-        output.get_mutable_value().mutable_xyzs()[:] = scene_points.T
-        output.get_mutable_value().mutable_rgbs()[:] = scene_colors.T
+        output.get_mutable_value().resize(scene_points.shape[1])
+        output.get_mutable_value().mutable_xyzs()[:] = scene_points
+        output.get_mutable_value().mutable_rgbs()[:] = scene_colors
