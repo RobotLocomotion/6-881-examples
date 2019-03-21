@@ -399,6 +399,8 @@ def Main(config_file, model_points_file, model_image_file, dope_pose_file,
     @return A 4x4 Numpy array representing the pose of the object.
     """
 
+    # TODO(kmuhlrad): need a good way of making ObjectInfo dict
+
     builder = DiagramBuilder()
 
     if custom_align:
