@@ -1,129 +1,77 @@
 import numpy as np
-import yaml
 
-from pydrake.systems.framework import AbstractValue, LeafSystem
-from pydrake.common.eigen_geometry import Isometry3, AngleAxis
-from pydrake.systems.sensors import CameraInfo, ImageRgba8U
+from pydrake.examples.manipulation_station import ManipulationStation, _xyz_rpy
+from pydrake.systems.analysis import Simulator
+from pydrake.systems.framework import AbstractValue, DiagramBuilder, LeafSystem
+from pydrake.systems.sensors import PixelType
+
 import pydrake.perception as mut
 
-import meshcat.transformations as tf
+from perception_tools.load_config_file import LoadConfigFile
 
 class PointCloudSynthesis(LeafSystem):
 
-    def __init__(self, config_file, viz=False):
+    def __init__(self, transform_dict, viz=False):
         """
         # TODO(kmuhlrad): make having RGBs optional.
+        # TODO(kmuhlrad): remove viz with MeshcatPointCloudVisualizer
         A system that takes in N point clouds and N Isometry3 transforms that
         put each point cloud in world frame. The system returns one point cloud
         combining all of the transformed point clouds. Each point cloud must
         have XYZs and RGBs.
 
-        @param config_file str. A path to a .yml configuration file for the
-            cameras.
+        @param transform_dict dict. A map from point cloud IDs to transforms to
+            put the point cloud of that ID in world frame.
         @param viz bool. If True, save the combined point clouds
             as serialized numpy arrays.
 
         @system{
           @input_port{point_cloud_id0}
-          @input_port{X_WPC_id0}
           .
           .
           .
-          @input_port{point_cloud_idN}
-          @input_port{X_WPC_idN}
-          @output_port{combined_point_cloud}
+          @input_port{point_cloud_P_idN}
+          @output_port{combined_point_cloud_W}
         }
         """
         LeafSystem.__init__(self)
 
-        self._LoadConfigFile(config_file)
         self.viz = viz
 
-        self.input_ports = {}
+        self.point_cloud_ports = {}
+        self.transform_ports = {}
 
-        for id in self.camera_configs:
-            self.input_ports[id] = self._DeclareAbstractInputPort(
-                "point_cloud_" + id, AbstractValue.Make(mut.PointCloud()))
+        self.transform_dict = transform_dict
+        self.id_list = self.transform_dict.keys()
+
+        for id in self.id_list:
+            self.point_cloud_ports[id] = self._DeclareAbstractInputPort(
+                "point_cloud_P_{}".format(id),
+                AbstractValue.Make(mut.PointCloud()))
 
         output_fields = mut.Fields(mut.BaseField.kXYZs | mut.BaseField.kRGBs)
-        self._DeclareAbstractOutputPort("combined_point_cloud",
+        self._DeclareAbstractOutputPort("combined_point_cloud_W",
                                         lambda: AbstractValue.Make(
                                             mut.PointCloud(
                                                 fields=output_fields)),
                                         self._DoCalcOutput)
 
-    def _LoadConfigFile(self, config_file):
-        with open(config_file, 'r') as stream:
-            try:
-                config = yaml.load(stream)
-                self.camera_configs = {}
-                for camera in config:
-                    serial_no, X_WCamera, X_CameraDepth, camera_info = \
-                        self._ParseCameraConfig(config[camera])
-                    id = str(serial_no)
-                    self.camera_configs[id] = {}
-                    self.camera_configs[id]["camera_pose_world"] = X_WCamera
-                    self.camera_configs[id]["camera_pose_internal"] = \
-                        X_CameraDepth
-                    self.camera_configs[id]["camera_info"] = camera_info
-            except yaml.YAMLError as exc:
-                print "could not parse config file"
-                print exc
-
-    def _ParseCameraConfig(self, camera_config):
-        # extract serial number
-        serial_no = camera_config["serial_no"]
-
-        # construct the transformation matrix
-        world_transform = camera_config["world_transform"]
-        X_WCamera = tf.euler_matrix(world_transform["roll"],
-                                    world_transform["pitch"],
-                                    world_transform["yaw"])
-        X_WCamera[:3, 3] = \
-            [world_transform["x"], world_transform["y"], world_transform["z"]]
-
-        # construct the transformation matrix
-        internal_transform = camera_config["internal_transform"]
-        X_CameraDepth = tf.euler_matrix(internal_transform["roll"],
-                                        internal_transform["pitch"],
-                                        internal_transform["yaw"])
-        X_CameraDepth[:3, 3] = ([internal_transform["x"],
-                                 internal_transform["y"],
-                                 internal_transform["z"]])
-
-        # construct the camera info
-        camera_info_data = camera_config["camera_info"]
-        if "fov_y" in camera_info_data:
-            camera_info = CameraInfo(camera_info_data["width"],
-                                     camera_info_data["height"],
-                                     camera_info_data["fov_y"])
-        else:
-            camera_info = CameraInfo(
-                camera_info_data["width"], camera_info_data["height"],
-                camera_info_data["focal_x"], camera_info_data["focal_y"],
-                camera_info_data["center_x"], camera_info_data["center_y"])
-
-        return serial_no, X_WCamera, X_CameraDepth, camera_info
-
     def _AlignPointClouds(self, context):
         points = {}
         colors = {}
 
-        for id in self.camera_configs:
+        for id in self.id_list:
             point_cloud = self.EvalAbstractInput(
-                context, self.input_ports[id].get_index()).get_value()
+                context, self.point_cloud_ports[id].get_index()).get_value()
 
             colors[id] = point_cloud.rgbs()
 
             # Make a homogenous version of the points.
-            points_h = np.vstack((point_cloud.xyzs(),
-                                  np.ones((1, point_cloud.xyzs().shape[1]))))
+            points_h_P = np.vstack((point_cloud.xyzs(),
+                                   np.ones((1, point_cloud.xyzs().shape[1]))))
 
-            X_WDepth = self.camera_configs[id]["camera_pose_world"].dot(
-                self.camera_configs[id]["camera_pose_internal"])
-            points_transformed = X_WDepth.dot(points_h)
-
-            points[id] = points_transformed[:3, :]
+            X_WP = self.transform_dict[id]
+            points[id] = X_WP.dot(points_h_P)[:3, :]
 
         # Combine all the points and colors into two arrays.
         scene_points = None
@@ -157,3 +105,88 @@ class PointCloudSynthesis(LeafSystem):
         output.get_mutable_value().resize(scene_points.shape[1])
         output.get_mutable_value().mutable_xyzs()[:] = scene_points
         output.get_mutable_value().mutable_rgbs()[:] = scene_colors
+
+
+def CreateYcbObjectClutter():
+    ycb_object_pairs = []
+
+    X_WCracker = _xyz_rpy([0.35, 0.14, 0.09], [0, -1.57, 4])
+    ycb_object_pairs.append(
+        ("drake/manipulation/models/ycb/sdf/003_cracker_box.sdf", X_WCracker))
+
+    # The sugar box pose.
+    X_WSugar = _xyz_rpy([0.28, -0.17, 0.03], [0, 1.57, 3.14])
+    ycb_object_pairs.append(
+        ("drake/manipulation/models/ycb/sdf/004_sugar_box.sdf", X_WSugar))
+
+    X_WSoup = _xyz_rpy([0.40, -0.07, 0.03], [-1.57, 0, 3.14])
+    ycb_object_pairs.append(
+        ("drake/manipulation/models/ycb/sdf/005_tomato_soup_can.sdf", X_WSoup))
+
+    # The mustard bottle pose.
+    X_WMustard = _xyz_rpy([0.44, -0.16, 0.09], [-1.57, 0, 3.3])
+    ycb_object_pairs.append(
+        ("drake/manipulation/models/ycb/sdf/006_mustard_bottle.sdf",
+         X_WMustard))
+
+    # The potted meat can pose.
+    X_WMeat = _xyz_rpy([0.35, -0.32, 0.03], [-1.57, 0, 2.5])
+    ycb_object_pairs.append(
+        ("drake/manipulation/models/ycb/sdf/010_potted_meat_can.sdf", X_WMeat))
+
+    return ycb_object_pairs
+
+
+if __name__ == "__main__":
+    builder = DiagramBuilder()
+
+    # Create the ManipulationStation.
+    station = builder.AddSystem(ManipulationStation())
+    station.SetupDefaultStation()
+    ycb_objects = CreateYcbObjectClutter()
+    for model_file, X_WObject in ycb_objects:
+        station.AddManipulandFromFile(model_file, X_WObject)
+    station.Finalize()
+
+    id_list = station.get_camera_names()
+
+    camera_configs = LoadConfigFile(
+        "/home/amazon/6-881-examples/perception/config/sim.yml")
+
+    transform_dict = {}
+    for id in id_list:
+        transform_dict[id] = camera_configs[id]["camera_pose_world"].dot(
+            camera_configs[id]["camera_pose_internal"])
+
+    # Create the PointCloudSynthesis system.
+    pc_synth = builder.AddSystem(PointCloudSynthesis(transform_dict, True))
+
+    # Create the duts.
+    # use scale factor of 1/1000 to convert mm to m
+    duts = {}
+    for id in id_list:
+        duts[id] = builder.AddSystem(mut.DepthImageToPointCloud(
+            camera_configs[id]["camera_info"], PixelType.kDepth16U, 1e-3,
+            fields=mut.BaseField.kXYZs | mut.BaseField.kRGBs))
+
+        builder.Connect(
+            station.GetOutputPort("camera_{}_rgb_image".format(id)),
+            duts[id].color_image_input_port())
+        builder.Connect(
+            station.GetOutputPort("camera_{}_depth_image".format(id)),
+            duts[id].depth_image_input_port())
+
+        builder.Connect(duts[id].point_cloud_output_port(),
+                        pc_synth.GetInputPort("point_cloud_P_{}".format(id)))
+
+    # build diagram
+    diagram = builder.Build()
+
+    # construct simulator
+    simulator = Simulator(diagram)
+
+    context = diagram.GetMutableSubsystemContext(
+        pc_synth, simulator.get_mutable_context())
+
+    pc = pc_synth.GetOutputPort("combined_point_cloud_W").Eval(context)
+    print pc.size()
