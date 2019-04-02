@@ -75,20 +75,20 @@ class PoseRefinement(LeafSystem):
 
         self.object_info_dict = object_info_dict
 
-        self.point_cloud_port = self._DeclareAbstractInputPort(
+        self.point_cloud_port = self.DeclareAbstractInputPort(
             "point_cloud", AbstractValue.Make(mut.PointCloud()))
 
 
-        self.pose_bundle_port = self._DeclareAbstractInputPort(
+        self.pose_bundle_port = self.DeclareAbstractInputPort(
             "pose_bundle", AbstractValue.Make(PoseBundle(
                 num_poses=len(self.object_info_dict))))
 
-        self._DeclareAbstractOutputPort("refined_pose_bundle",
+        self.DeclareAbstractOutputPort("refined_pose_bundle",
                                         lambda: AbstractValue.Make(
                                             PoseBundle(
                                                 num_poses=len(
                                                     self.object_info_dict))),
-                                        self._DoCalcOutput)
+                                        self.DoCalcOutput)
 
         self.viz = viz
         self.viz_save_location = viz_save_location
@@ -172,9 +172,12 @@ class PoseRefinement(LeafSystem):
         Returns:
         @return A 4x4 numpy array representing the pose of the object.
         """
-        X_MS, _, _ = RunICP(
-            model, segmented_scene_points, init_guess=init_pose.matrix(),
-            max_iterations=100, tolerance=1e-8)
+        if len(segmented_scene_points):
+            X_MS, _, _ = RunICP(
+                model, segmented_scene_points, init_guess=init_pose.matrix(),
+                max_iterations=100, tolerance=1e-8)
+        else:
+            X_MS = np.eye(4)
 
         return X_MS
 
@@ -220,18 +223,19 @@ class PoseRefinement(LeafSystem):
                 segmented_scene_points, segmented_scene_colors, model,
                 model_image, init_pose)
 
-    def _DoCalcOutput(self, context, output):
+    def DoCalcOutput(self, context, output):
         pose_bundle = self.EvalAbstractInput(
             context, self.pose_bundle_port.get_index()).get_value()
         point_cloud = self.EvalAbstractInput(
             context, self.point_cloud_port.get_index()).get_value()
 
         for i in range(pose_bundle.get_num_poses()):
-            object_name = pose_bundle.get_name(i)
-            init_pose = pose_bundle.get_pose(i)
-            X_WObject_refined = self._RefineSinglePose(point_cloud, self.object_info_dict[object_name], init_pose)
-            output.get_mutable_value.set_name(i, object_name)
-            output.get_mutable_value.set_pose(i, X_WObject_refined)
+            if pose_bundle.get_name(i):
+                object_name = pose_bundle.get_name(i)
+                init_pose = pose_bundle.get_pose(i)
+                X_WObject_refined = self._RefineSinglePose(point_cloud, self.object_info_dict[object_name], init_pose)
+                output.get_mutable_value().set_name(i, object_name)
+                output.get_mutable_value().set_pose(i, X_WObject_refined)
 
         # init_pose = None
         # for i in range(pose_bundle.get_num_poses()):
@@ -377,6 +381,38 @@ def CustomAlignmentFunctionDummy(segmented_scene_points, segmented_scene_colors,
 
     return np.eye(4)
 
+def ConstructDefaultObjectInfoDict(custom_align):
+    object_info_dict = {}
+
+    model_file_base_path = "models/"
+    model_files = {
+        "cracker": model_file_base_path + "003_cracker_box_textured.npy",
+        "sugar": model_file_base_path + "004_sugar_box_textured.npy",
+        "soup": model_file_base_path + "005_tomato_soup_can_textured.npy",
+        "mustard": model_file_base_path + "006_mustard_bottle_textured.npy",
+        "gelatin": model_file_base_path + "009_gelatin_box_textured.npy",
+        "meat": model_file_base_path + "010_potted_meat_can_textured.npy"
+    }
+
+    image_file_base_path = "/home/amazon/drake-build/install/share/drake/" \
+                           "manipulation/models/ycb/meshes/"
+    image_files = {
+        "cracker": image_file_base_path + "003_cracker_box_textured.png",
+        "sugar": image_file_base_path + "004_sugar_box_textured.png",
+        "soup": image_file_base_path + "005_tomato_soup_can_textured.png",
+        "mustard": image_file_base_path + "006_mustard_bottle_textured.png",
+        "gelatin": image_file_base_path + "009_gelatin_box_textured.png",
+        "meat": image_file_base_path + "010_potted_meat_can_textured.png"
+    }
+
+    for object_name in model_files:
+        info = ObjectInfo(object_name,
+                          model_files[object_name],
+                          image_files[object_name],
+                          alignment_function=CustomAlignmentFunctionDummy if custom_align else None)
+        object_info_dict[object_name] = info
+
+    return object_info_dict
 
 def Main(config_file, model_points_file, model_image_file, dope_pose_file,
          object_name, viz=True, save_path="", custom_align=False):
@@ -401,17 +437,12 @@ def Main(config_file, model_points_file, model_image_file, dope_pose_file,
 
     # TODO(kmuhlrad): need a good way of making ObjectInfo dict
 
+    object_info_dict = ConstructDefaultObjectInfoDict(custom_align)
+
     builder = DiagramBuilder()
 
-    if custom_align:
-        pose_refinement = builder.AddSystem(PoseRefinement(
-            config_file, model_points_file, model_image_file,
-            alignment_function=CustomAlignmentFunctionDummy, viz=viz,
-            viz_save_location=save_path))
-    else:
-        pose_refinement = builder.AddSystem(PoseRefinement(
-            config_file, model_points_file, model_image_file, viz=viz,
-            viz_save_location=save_path))
+    pose_refinement = builder.AddSystem(
+        PoseRefinement(object_info_dict, viz=viz, viz_save_location=save_path))
 
     # realsense serial numbers are >> 100
     use_hardware = \
@@ -449,6 +480,7 @@ def Main(config_file, model_points_file, model_image_file, dope_pose_file,
     diagram = builder.Build()
     simulator = Simulator(diagram)
 
+    # TODO(kmuhlrad): fix this
     dope_poses = ReadPosesFromFile(dope_pose_file)
     dope_pose = dope_poses[object_name]
 

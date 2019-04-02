@@ -14,9 +14,10 @@ from pydrake.systems.sensors import ImageToLcmImageArrayT, PixelType
 import pydrake.perception as mut
 
 from dope_system import DopeSystem
-from point_cloud_synthesis import PointCloudSynthesis
-from pose_refinement import PoseRefinement
+from perception_tools.point_cloud_synthesis import PointCloudSynthesis
+from pose_refinement import PoseRefinement, ObjectInfo
 from perception_tools.visualization_utils import ThresholdArray
+from perception_tools.load_config_file import LoadConfigFile
 from sklearn.neighbors import NearestNeighbors
 
 from plan_runner.demo_plans import GeneratePickAndPlaceObjectPlans, GeneratePickAndPlaceObjectTaskPlans
@@ -34,7 +35,7 @@ model_files = {
     "sugar": model_file_base_path + "004_sugar_box_textured.npy",
     "soup": model_file_base_path + "005_tomato_soup_can_textured.npy",
     "mustard": model_file_base_path + "006_mustard_bottle_textured.npy",
-    "gelatin": model_file_base_path + "009_gelatin_box_textured.npy",
+    # "gelatin": model_file_base_path + "009_gelatin_box_textured.npy",
     "meat": model_file_base_path + "010_potted_meat_can_textured.npy"
 }
 
@@ -45,7 +46,7 @@ image_files = {
     "sugar": image_file_base_path + "004_sugar_box_textured.png",
     "soup": image_file_base_path + "005_tomato_soup_can_textured.png",
     "mustard": image_file_base_path + "006_mustard_bottle_textured.png",
-    "gelatin": image_file_base_path + "009_gelatin_box_textured.png",
+    # "gelatin": image_file_base_path + "009_gelatin_box_textured.png",
     "meat": image_file_base_path + "010_potted_meat_can_textured.png"
 }
 
@@ -64,17 +65,17 @@ def CreateYcbObjectClutter():
 
     # The tomato soup can pose.
     # After moving:
-    X_WSoup = RigidTransform(np.array([[-9.99982403e-01,  1.01915004e-16,  5.93238370e-03,  8.55377622e-01],
-     [-5.93238370e-03, -4.44089210e-16, -9.99982403e-01, -2.38764523e-03],
-     [-9.93129190e-17, -1.00000000e+00,  4.44089210e-16,  3.42077514e-01],
-    [ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,  1.00000000e+00]]))
+    # X_WSoup = RigidTransform(np.array([[-9.99982403e-01,  1.01915004e-16,  5.93238370e-03,  8.55377622e-01],
+    #  [-5.93238370e-03, -4.44089210e-16, -9.99982403e-01, -2.38764523e-03],
+    #  [-9.93129190e-17, -1.00000000e+00,  4.44089210e-16,  3.42077514e-01],
+    # [ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,  1.00000000e+00]]))
 
-    # X_WSoup = _xyz_rpy([0.40, -0.07, 0.03], [-1.57, 0, 3.14])
+    X_WSoup = _xyz_rpy([0.40, -0.07, 0.03], [-1.57, 0, 3.14])
     ycb_object_pairs.append(
         ("drake/manipulation/models/ycb/sdf/005_tomato_soup_can.sdf", X_WSoup))
 
     # The mustard bottle pose.
-    # X_WMustard = _xyz_rpy([0.44, -0.16, 0.09], [-1.57, 0, 3.3])
+    X_WMustard = _xyz_rpy([0.44, -0.16, 0.09], [-1.57, 0, 3.3])
     '''
     [[-9.69829800e-01  1.44285253e-04 -2.43782975e-01  4.45281370e-01]
  [ 2.43782981e-01  2.15142685e-05 -9.69829809e-01 -1.61993966e-01]
@@ -82,10 +83,10 @@ def CreateYcbObjectClutter():
  [ 0.00000000e+00  0.00000000e+00  0.00000000e+00  1.00000000e+00]]
 
     '''
-    X_WMustard = RigidTransform(np.array([[-9.69829800e-01,  1.44285253e-04, -2.43782975e-01,  4.45281370e-01],
-                                          [ 2.43782981e-01,  2.15142685e-05, -9.69829809e-01, -1.61993966e-01],
-                                         [-1.34687327e-04, -9.99999989e-01, -5.60394677e-05,  8.22916025e-02],
-                                            [ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,  1.00000000e+00]]))
+    # X_WMustard = RigidTransform(np.array([[-9.69829800e-01,  1.44285253e-04, -2.43782975e-01,  4.45281370e-01],
+    #                                       [ 2.43782981e-01,  2.15142685e-05, -9.69829809e-01, -1.61993966e-01],
+    #                                      [-1.34687327e-04, -9.99999989e-01, -5.60394677e-05,  8.22916025e-02],
+    #                                         [ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,  1.00000000e+00]]))
     ycb_object_pairs.append(
         ("drake/manipulation/models/ycb/sdf/006_mustard_bottle.sdf",
          X_WMustard))
@@ -153,7 +154,6 @@ def SegmentArea(scene_points, scene_colors, model, model_image, init_pose):
     max_delta_y = np.abs(np.max(model[:, 1]) - np.min(model[:, 1]))
     max_delta_z = np.abs(np.max(model[:, 2]) - np.min(model[:, 2]))
 
-    # CHANGED FROM MAX
     max_delta = np.max([max_delta_x, max_delta_y, max_delta_z])
 
     init_x = init_pose.matrix()[0, 3]
@@ -324,9 +324,9 @@ def SegmentMustardBottle(scene_points, scene_colors, model, model_image, init_po
 
     segmented_points, segmented_colors = SegmentColor(color_thresholds, area_points, area_colors, model, model_image, init_pose)
 
-    final_points, final_colors = PruneOutliers(segmented_points, segmented_colors, 0.01, 40)
+    # final_points, final_colors = PruneOutliers(segmented_points, segmented_colors, 0.01, 40)
 
-    return final_points, final_colors
+    return segmented_points, segmented_colors
 
 def SegmentGelatinBox(scene_points, scene_colors, model, model_image, init_pose):
     area_points, area_colors = SegmentArea(scene_points, scene_colors, model, model_image, init_pose)
@@ -407,6 +407,18 @@ seg_functions = {
     'meat': SegmentMeatCan,
 }
 
+def ConstructObjectInfoDict():
+    object_info_dict = {}
+
+    for object_name in model_files:
+        info = ObjectInfo(object_name,
+                          model_files[object_name],
+                          image_files[object_name],
+                          segment_scene_function=seg_functions[object_name])
+        object_info_dict[object_name] = info
+
+    return object_info_dict
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -418,9 +430,6 @@ def main():
 
     builder = DiagramBuilder()
 
-    # Create the ManipulationStation.
-    # manip_station_sim = ManipulationStationSimulator(time_step=2e-3, objects_and_poses=CreateYcbObjectClutter())
-    # station = builder.AddSystem(manip_station_sim.station)
     station = builder.AddSystem(ManipulationStation())
     station.SetupDefaultStation()
     ycb_objects = CreateYcbObjectClutter()
@@ -428,39 +437,50 @@ def main():
         station.AddManipulandFromFile(model_file, X_WObject)
     station.Finalize()
 
-    # Create the PoseRefinement systems.
-    camera_config_file = '/home/amazon/6-881-examples/perception/config/sim.yml'
-    pose_refinement_systems = {}
-    for obj in ["cracker", "sugar", "soup", "mustard", "meat"]:
-        pose_refinement_systems[obj] = builder.AddSystem(PoseRefinement(
-            camera_config_file, model_files[obj], image_files[obj], obj, segment_scene_function=seg_functions[obj], viz=(obj=="meat")))
+    # Create the PoseRefinement system.
+    object_info_dict = ConstructObjectInfoDict()
+    pose_refinement_system = builder.AddSystem(PoseRefinement(
+        object_info_dict, viz=True))
 
     # Create the PointCloudSynthesis system.
-    pc_synth = builder.AddSystem(PointCloudSynthesis(camera_config_file, False))
+    id_list = station.get_camera_names()
+    left_serial = "1"
+    middle_serial = "2"
+    right_serial = "0"
+
+    camera_configs = LoadConfigFile(
+        "/home/amazon/6-881-examples/perception/config/sim.yml")
+    transform_dict = {}
+    for id in id_list:
+        transform_dict[id] = camera_configs[id]["camera_pose_world"].multiply(
+            camera_configs[id]["camera_pose_internal"])
+    pc_synth = builder.AddSystem(PointCloudSynthesis(transform_dict, True))
+
+    X_WCamera = camera_configs[right_serial]["camera_pose_world"].multiply(
+        camera_configs[right_serial]["camera_pose_internal"])
 
     # Use the right camera for DOPE.
-    right_camera_info = pose_refinement_systems["cracker"].camera_configs["right_camera_info"]
-    right_name_prefix = \
-        "camera_" + pose_refinement_systems["cracker"].camera_configs["right_camera_serial"]
+    right_camera_info = camera_configs[right_serial]["camera_info"]
+    right_name_prefix = "camera_" + str(right_serial)
 
     # Create the DOPE system
     weights_path = '/home/amazon/catkin_ws/src/dope/weights'
     dope_config_file = '/home/amazon/catkin_ws/src/dope/config/config_pose.yaml'
-    dope_system = builder.AddSystem(DopeSystem(weights_path, dope_config_file))
+    dope_system = builder.AddSystem(DopeSystem(weights_path, dope_config_file, X_WCamera))
 
-    # TODO(kmuhlrad): figure out if I need to combine point clouds
+    # TODO(kmuhlrad): clean this up
     # Create the duts.
     # use scale factor of 1/1000 to convert mm to m
     duts = {}
-    duts[pose_refinement_systems["cracker"].camera_configs["right_camera_serial"]] = builder.AddSystem(mut.DepthImageToPointCloud(
-        right_camera_info, PixelType.kDepth16U, 1e-3,
-        fields=mut.BaseField.kXYZs | mut.BaseField.kRGBs))
-    duts[pose_refinement_systems["cracker"].camera_configs["left_camera_serial"]] = builder.AddSystem(mut.DepthImageToPointCloud(
-        pose_refinement_systems["cracker"].camera_configs["left_camera_info"], PixelType.kDepth16U, 1e-3,
-        fields=mut.BaseField.kXYZs | mut.BaseField.kRGBs))
-    duts[pose_refinement_systems["cracker"].camera_configs["middle_camera_serial"]] = builder.AddSystem(mut.DepthImageToPointCloud(
-        pose_refinement_systems["cracker"].camera_configs["middle_camera_info"], PixelType.kDepth16U, 1e-3,
-        fields=mut.BaseField.kXYZs | mut.BaseField.kRGBs))
+    duts[right_serial] = builder.AddSystem(mut.DepthImageToPointCloud(
+         right_camera_info, PixelType.kDepth16U, 1e-3,
+         fields=mut.BaseField.kXYZs | mut.BaseField.kRGBs))
+    duts[left_serial] = builder.AddSystem(mut.DepthImageToPointCloud(
+         camera_configs[left_serial]["camera_info"], PixelType.kDepth16U, 1e-3,
+         fields=mut.BaseField.kXYZs | mut.BaseField.kRGBs))
+    duts[middle_serial] = builder.AddSystem(mut.DepthImageToPointCloud(
+         camera_configs[middle_serial]["camera_info"], PixelType.kDepth16U, 1e-3,
+         fields=mut.BaseField.kXYZs | mut.BaseField.kRGBs))
 
     # Connect the depth and rgb images to the dut
     for name in station.get_camera_names():
@@ -471,23 +491,22 @@ def main():
             station.GetOutputPort("camera_" + name + "_depth_image"),
             duts[name].depth_image_input_port())
 
-    builder.Connect(duts[pose_refinement_systems["cracker"].camera_configs["left_camera_serial"]].point_cloud_output_port(),
-                    pc_synth.GetInputPort("left_point_cloud"))
-    builder.Connect(duts[pose_refinement_systems["cracker"].camera_configs["middle_camera_serial"]].point_cloud_output_port(),
-                    pc_synth.GetInputPort("middle_point_cloud"))
-    builder.Connect(duts[pose_refinement_systems["cracker"].camera_configs["right_camera_serial"]].point_cloud_output_port(),
-                    pc_synth.GetInputPort("right_point_cloud"))
+    builder.Connect(duts[left_serial].point_cloud_output_port(),
+                    pc_synth.GetInputPort("point_cloud_P_" + left_serial))
+    builder.Connect(duts[middle_serial].point_cloud_output_port(),
+                    pc_synth.GetInputPort("point_cloud_P_" + middle_serial))
+    builder.Connect(duts[right_serial].point_cloud_output_port(),
+                    pc_synth.GetInputPort("point_cloud_P_" + right_serial))
 
     # Connect the rgb images to the DopeSystem.
     builder.Connect(station.GetOutputPort(right_name_prefix + "_rgb_image"),
                     dope_system.GetInputPort("rgb_input_image"))
 
-    # Connect the PoseRefinement systems.
-    for pose_refinement in pose_refinement_systems.values():
-        builder.Connect(pc_synth.GetOutputPort("combined_point_cloud"),
-                        pose_refinement.GetInputPort("point_cloud"))
-        builder.Connect(dope_system.GetOutputPort("pose_bundle"),
-                        pose_refinement.GetInputPort("pose_bundle"))
+    # Connect the PoseRefinement system.
+    builder.Connect(pc_synth.GetOutputPort("combined_point_cloud_W"),
+                    pose_refinement_system.GetInputPort("point_cloud"))
+    builder.Connect(dope_system.GetOutputPort("pose_bundle"),
+                    pose_refinement_system.GetInputPort("pose_bundle"))
 
     # Connect visualization stuff.
     if args.meshcat:
@@ -500,58 +519,7 @@ def main():
         ConnectDrakeVisualizer(builder, station.get_scene_graph(),
                                station.GetOutputPort("pose_bundle"))
 
-    # Plan Runner Stuff
-    # Generate plans.
-
-    # TODO(kmuhlrad): change this between runs
-    ########################################
     q0 = np.array([0, -0.2136, 0, -2.094, 0, 0.463, 0]) #[0, 0, 0, -1.75, 0, 1.0, 0]
-    p_WQ_home = np.array([0.5, 0, 0.41])
-    p_WQ_place = np.array([0.1, -0.07, -0.1])
-    p_WQ_pick = np.array([0.1, 0, 0]) #p_WQ_home + np.array([0.1, 0, 0])
-    # [0.40, -0.07, 0.08]
-    # plan_list, gripper_setpoint_list = GenerateOpenLeftDoorPlansByImpedanceOrPosition(
-    #     open_door_method="Impedance", is_open_fully=True, q0=q0)
-    plan_list, gripper_setpoint_list = GeneratePickAndPlaceObjectTaskPlans(
-        p_WQ_pick, p_WQ_place ,is_printing=True)
-    ########################################
-
-    plan_runner = ManipStationPlanRunner(
-        station=station,
-        kuka_plans=plan_list,
-        gripper_setpoint_list=gripper_setpoint_list)
-    duration_multiplier = plan_runner.kPlanDurationMultiplier
-
-    builder.AddSystem(plan_runner)
-    builder.Connect(plan_runner.GetOutputPort("gripper_setpoint"),
-                    station.GetInputPort("wsg_position"))
-    builder.Connect(plan_runner.GetOutputPort("force_limit"),
-                    station.GetInputPort("wsg_force_limit"))
-
-
-    demux = builder.AddSystem(Demultiplexer(14, 7))
-    builder.Connect(
-        plan_runner.GetOutputPort("iiwa_position_and_torque_command"),
-        demux.get_input_port(0))
-    builder.Connect(demux.get_output_port(0),
-                    station.GetInputPort("iiwa_position"))
-    builder.Connect(demux.get_output_port(1),
-                    station.GetInputPort("iiwa_feedforward_torque"))
-    builder.Connect(station.GetOutputPort("iiwa_position_measured"),
-                    plan_runner.GetInputPort("iiwa_position"))
-    builder.Connect(station.GetOutputPort("iiwa_velocity_estimated"),
-                    plan_runner.GetInputPort("iiwa_velocity"))
-
-
-    # Add loggers
-    publish_period = 0.001
-    iiwa_position_command_log = LogOutput(demux.get_output_port(0), builder)
-    iiwa_position_command_log._DeclarePeriodicPublish(publish_period)
-
-    wsg_position_command_log = LogOutput(
-        plan_runner.GetOutputPort("gripper_setpoint"), builder)
-    wsg_position_command_log._DeclarePeriodicPublish(publish_period)
-
 
     # build diagram
     diagram = builder.Build()
@@ -563,10 +531,14 @@ def main():
         station, simulator.get_mutable_context())
 
     # set initial state of the robot
-    station.SetIiwaPosition(station_context, q0)
-    station.SetIiwaVelocity(station_context, np.zeros(7))
-    station.SetWsgPosition(station_context, 0.05)
-    station.SetWsgVelocity(station_context, 0)
+    station_context.FixInputPort(
+        station.GetInputPort("iiwa_position").get_index(), q0)
+    station_context.FixInputPort(
+        station.GetInputPort("iiwa_feedforward_torque").get_index(), np.zeros(7))
+    station_context.FixInputPort(
+        station.GetInputPort("wsg_position").get_index(), [0.05])
+    station_context.FixInputPort(
+        station.GetInputPort("wsg_force_limit").get_index(), [50])
 
     # Door now starts open
     left_hinge_joint = station.get_multibody_plant().GetJointByName("left_door_hinge")
@@ -589,20 +561,17 @@ def main():
     # cv2.waitKey(0)
 
     # Check the poses.
-    X_WCamera = pose_refinement_systems['cracker'].camera_configs["right_camera_pose_world"].multiply(
-        pose_refinement_systems['cracker'].camera_configs["right_camera_pose_internal"])
-
     print("DOPE POSES")
     pose_bundle = dope_system.GetOutputPort("pose_bundle").Eval(context)
     for i in range(pose_bundle.get_num_poses()):
-        if pose_bundle.get_name(i) == "meat":
+        if pose_bundle.get_name(i) == "mustard":
             import meshcat.geometry as g
-            print pose_bundle.get_name(i), X_WCamera.multiply(pose_bundle.get_pose(i))
-            bounding_box = g.Box([10.16/100., 8.35/100., 5.76/100.])
+            print pose_bundle.get_name(i), pose_bundle.get_pose(i).matrix()
+            bounding_box = g.Box([9.6/100., 19.13/100., 5.82/100.])
             material = g.MeshBasicMaterial(color=0xffffff)
             mesh = g.Mesh(geometry=bounding_box, material=material)
             meshcat.vis["dope"].set_object(mesh)
-            meshcat.vis["dope"].set_transform(X_WCamera.multiply(pose_bundle.get_pose(i)).matrix())
+            meshcat.vis["dope"].set_transform(pose_bundle.get_pose(i).matrix())
 
     print("\n\nICP POSES")
     colors = {
@@ -621,12 +590,16 @@ def main():
         # 'gelatin': [8.92/100., 7.31/100., 3/100.],
         'meat': [10.16/100., 8.35/100., 5.76/100.]
     }
+    p_context = diagram.GetMutableSubsystemContext(
+        pose_refinement_system, simulator.get_mutable_context())
     for obj_name in ["soup", "mustard", "meat"]:
         import meshcat.geometry as g
-        p_context = diagram.GetMutableSubsystemContext(
-            pose_refinement_systems[obj_name], simulator.get_mutable_context())
-        pose = pose_refinement_systems[obj_name].GetOutputPort(
-            "X_WObject_refined").Eval(p_context)
+        pose_bundle = pose_refinement_system.GetOutputPort(
+            "refined_pose_bundle").Eval(p_context)
+        for i in range(pose_bundle.get_num_poses()):
+            if pose_bundle.get_name(i) == obj_name:
+                pose = pose_bundle.get_pose(i)
+                break
         bounding_box = g.Box(sizes[obj_name])
         material = g.MeshBasicMaterial(color=colors[obj_name])
         mesh = g.Mesh(geometry=bounding_box, material=material)

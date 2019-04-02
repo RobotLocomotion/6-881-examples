@@ -45,16 +45,16 @@ class PointCloudSynthesis(LeafSystem):
         self.id_list = self.transform_dict.keys()
 
         for id in self.id_list:
-            self.point_cloud_ports[id] = self._DeclareAbstractInputPort(
+            self.point_cloud_ports[id] = self.DeclareAbstractInputPort(
                 "point_cloud_P_{}".format(id),
                 AbstractValue.Make(mut.PointCloud()))
 
         output_fields = mut.Fields(mut.BaseField.kXYZs | mut.BaseField.kRGBs)
-        self._DeclareAbstractOutputPort("combined_point_cloud_W",
+        self.DeclareAbstractOutputPort("combined_point_cloud_W",
                                         lambda: AbstractValue.Make(
                                             mut.PointCloud(
                                                 fields=output_fields)),
-                                        self._DoCalcOutput)
+                                        self.DoCalcOutput)
 
     def _AlignPointClouds(self, context):
         points = {}
@@ -70,7 +70,7 @@ class PointCloudSynthesis(LeafSystem):
             points_h_P = np.vstack((point_cloud.xyzs(),
                                    np.ones((1, point_cloud.xyzs().shape[1]))))
 
-            X_WP = self.transform_dict[id]
+            X_WP = self.transform_dict[id].matrix()
             points[id] = X_WP.dot(points_h_P)[:3, :]
 
         # Combine all the points and colors into two arrays.
@@ -95,7 +95,7 @@ class PointCloudSynthesis(LeafSystem):
 
         return scene_points, scene_colors
 
-    def _DoCalcOutput(self, context, output):
+    def DoCalcOutput(self, context, output):
         scene_points, scene_colors = self._AlignPointClouds(context)
 
         if self.viz:

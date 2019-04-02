@@ -1,13 +1,16 @@
 import yaml
 
+from pydrake.math import RigidTransform, RollPitchYaw
 from pydrake.systems.sensors import CameraInfo
-import meshcat.transformations as tf
+
+def _xyz_rpy(xyz, rpy):
+    return RigidTransform(RollPitchYaw(rpy), xyz)
 
 def LoadConfigFile(config_file):
+    camera_configs = {}
     with open(config_file, 'r') as stream:
         try:
             config = yaml.load(stream)
-            camera_configs = {}
             for camera in config:
                 serial_no, X_WCamera, X_CameraDepth, camera_info = \
                     _ParseCameraConfig(config[camera])
@@ -24,27 +27,27 @@ def LoadConfigFile(config_file):
     return camera_configs
 
 
-# TODO(kmuhlrad): drakify
 def _ParseCameraConfig(camera_config):
     # extract serial number
     serial_no = camera_config["serial_no"]
 
     # construct the transformation matrix
     world_transform = camera_config["world_transform"]
-    X_WCamera = tf.euler_matrix(world_transform["roll"],
-                                world_transform["pitch"],
-                                world_transform["yaw"])
-    X_WCamera[:3, 3] = \
-        [world_transform["x"], world_transform["y"], world_transform["z"]]
+    X_WCamera = _xyz_rpy([world_transform["x"],
+                          world_transform["y"],
+                          world_transform["z"]],
+                         [world_transform["roll"],
+                          world_transform["pitch"],
+                          world_transform["yaw"]])
 
     # construct the transformation matrix
     internal_transform = camera_config["internal_transform"]
-    X_CameraDepth = tf.euler_matrix(internal_transform["roll"],
-                                    internal_transform["pitch"],
-                                    internal_transform["yaw"])
-    X_CameraDepth[:3, 3] = ([internal_transform["x"],
-                             internal_transform["y"],
-                             internal_transform["z"]])
+    X_CameraDepth = _xyz_rpy([internal_transform["x"],
+                              internal_transform["y"],
+                              internal_transform["z"]],
+                             [internal_transform["roll"],
+                              internal_transform["pitch"],
+                              internal_transform["yaw"]])
 
     # construct the camera info
     camera_info_data = camera_config["camera_info"]

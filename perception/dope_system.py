@@ -33,7 +33,7 @@ class DopeSystem(LeafSystem):
       @output_port{annotated_rgb_image},
       @output_port{pose_bundle}
     """
-    def __init__(self, weights_path, config_file):
+    def __init__(self, weights_path, config_file, X_WCamera):
         """
         @param weights a path to a directory containing model weights.
         @param config_file a path to a .yaml file with the DOPE configuration.
@@ -57,21 +57,24 @@ class DopeSystem(LeafSystem):
         self.image_data = None
         self.g_draw = None
 
+        # TODO(kmuhlrad): update documentation
+        self.X_WCamera = X_WCamera
+
         # TODO(kmuhlrad): Use camera config file instead of hardcoded values.
         camera_width = 848
         camera_height = 480
 
-        self.rgb_input_image = self._DeclareAbstractInputPort(
+        self.rgb_input_image = self.DeclareAbstractInputPort(
             "rgb_input_image", AbstractValue.Make(
                 ImageRgba8U(camera_width, camera_height)))
 
-        self._DeclareAbstractOutputPort("annotated_rgb_image",
+        self.DeclareAbstractOutputPort("annotated_rgb_image",
                                         lambda: AbstractValue.Make(
                                             ImageRgba8U(camera_width,
                                                         camera_height)),
                                         self._DoCalcAnnotatedImage)
 
-        self._DeclareAbstractOutputPort("pose_bundle",
+        self.DeclareAbstractOutputPort("pose_bundle",
                                         lambda: AbstractValue.Make(
                                             PoseBundle(num_poses=len(
                                                 self.model_names))),
@@ -228,7 +231,7 @@ class DopeSystem(LeafSystem):
 
         for model in self.poses:
             output.get_mutable_value().set_pose(
-                self.model_names.index(model), self.poses[model])
+                self.model_names.index(model), self.X_WCamera.multiply(self.poses[model]))
             output.get_mutable_value().set_name(
                 self.model_names.index(model), model)
 
