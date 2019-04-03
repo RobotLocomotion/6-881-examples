@@ -2,6 +2,7 @@ import numpy as np
 import yaml
 
 from pydrake.math import RigidTransform, RollPitchYaw
+from pydrake.systems.rendering import PoseBundle
 from pydrake.systems.sensors import CameraInfo
 
 def ReadPosesFromFile(filename):
@@ -22,7 +23,15 @@ def ReadPosesFromFile(filename):
                     pose_dict[object_name] = RigidTransform(cur_matrix)
                     cur_matrix = np.eye(4)
                 row_num %= 4
-    return pose_dict
+
+    pose_bundle = PoseBundle(num_poses=len(pose_dict))
+    i = 0
+    for object_name in pose_dict:
+        pose_bundle.set_name(i, object_name)
+        pose_bundle.set_pose(i, pose_dict[object_name])
+        i += 1
+
+    return pose_bundle
 
 
 def _xyz_rpy(xyz, rpy):

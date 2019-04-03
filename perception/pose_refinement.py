@@ -1,24 +1,20 @@
 import argparse
 import numpy as np
-import os
-import yaml
 
 from PIL import Image
+from perception_tools.file_utils import ReadPosesFromFile, LoadCameraConfigFile
 from perception_tools.iterative_closest_point import RunICP
 from perception_tools.visualization_utils import ThresholdArray
 
 import pydrake.perception as mut
 
-from pydrake.common.eigen_geometry import Isometry3
 from pydrake.examples.manipulation_station import (
     ManipulationStation, ManipulationStationHardwareInterface,
     CreateDefaultYcbObjectList)
-from pydrake.math import RollPitchYaw
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import AbstractValue, DiagramBuilder, LeafSystem
 from pydrake.systems.rendering import PoseBundle
-from pydrake.systems.sensors import CameraInfo, PixelType
-
+from pydrake.systems.sensors import PixelType
 
 class ObjectInfo(object):
 
@@ -35,40 +31,32 @@ class ObjectInfo(object):
 class PoseRefinement(LeafSystem):
 
     # TODO(kmuhlrad): update documentation
-    # TODO(kmuhlrad): remove vis for Meshcat stuff
-    def __init__(self, object_info_dict, viz=False, viz_save_location=""):
+    def __init__(self, object_info_dict):
         """
-        A system that takes in a point cloud, an initial pose guess, and an
-        object model and calculates a refined pose of the object. The user can
-        optionally supply a custom segmentation function and pose alignment
-        function used to determine the pose. If these functions aren't supplied,
-        the default functions in this class will be used. The input point_cloud
-        is assumed to be in camera frame, and will be transformed according to
-        the supplied camera configuration file into world frame. The input
-        X_WObject_guess is the initial guess of the pose of the object with
-        respect to world frame. The points in model_points_file are expected to
-        be in world frame. The output X_WObject_refined is also in world frame.
+        A system that takes in a point cloud, initial pose guesses, and some
+        ObjectInfo objects to calculate refined poses for each of the
+        objects. Through the ObjectInfo dictionary, the user can optionally
+        provide custom segmentation and pose alignment function used to
+        determine the final pose. If these functions aren't supplied,
+        the default functions in this class will be used. All point clouds and
+        poses are assumed to be in world frame. The output is a pose_bundle
+        containing the refined poses of every object. If the segmented
+        point cloud for a given object is empty, the returned pose will be
+        the initial guess. There are also output ports of each of the
+        segmented point clouds for visualization purposes.
 
-        @param config_file str. A path to a .yml configuration file for the
-            camera. Note that only the "right camera" will be used.
-        @param model_points_file str. A path to an .npy file containing the
-            object mesh.
-        @param model_image_file str. A path to an image file containing the
-            object texture.
-        @param segment_scene_function A Python function that returns a subset
-            of the scene point cloud. See self.SegmentScene for more details.
-        @param alignment_function A Python function that calculates a pose from
-            a segmented point cloud. See self.AlignPose for more details.
-        @param viz bool. If True, save the transformed and segmented point
-            clouds as serialized numpy arrays in viz_save_location.
-        @param viz_save_location str. If viz is True, the directory to save
-            the transformed and segmented point clouds. The default is saving
-            all point clouds to the current directory.
+        @param object_info_dict dict. A dictionary of ObjectInfo objects keyed
+            by the ObjectInfo.object_name.
 
         @system{
-          @input_port{point_cloud},
-          @input_port{pose_bundle},
-          @output_port{refined_pose_bundle}
+          @input_port{point_cloud_W},
+          @input_port{pose_bundle_W},
+          @output_port{refined_pose_bundle_W}
+          @output_port{segmented_point_cloud_W_obj_name_1}
+          .
+          .
+          .
+          @output_port{segmented_point_cloud_W_obj_name_n}
         }
         """
         LeafSystem.__init__(self)
@@ -76,22 +64,29 @@ class PoseRefinement(LeafSystem):
         self.object_info_dict = object_info_dict
 
         self.point_cloud_port = self.DeclareAbstractInputPort(
-            "point_cloud", AbstractValue.Make(mut.PointCloud()))
+            "point_cloud_W", AbstractValue.Make(mut.PointCloud()))
 
 
         self.pose_bundle_port = self.DeclareAbstractInputPort(
-            "pose_bundle", AbstractValue.Make(PoseBundle(
+            "pose_bundle_W", AbstractValue.Make(PoseBundle(
                 num_poses=len(self.object_info_dict))))
 
-        self.DeclareAbstractOutputPort("refined_pose_bundle",
+        self.DeclareAbstractOutputPort("refined_pose_bundle_W",
                                         lambda: AbstractValue.Make(
                                             PoseBundle(
                                                 num_poses=len(
                                                     self.object_info_dict))),
                                         self.DoCalcOutput)
 
-        self.viz = viz
-        self.viz_save_location = viz_save_location
+        output_fields = mut.Fields(mut.BaseField.kXYZs | mut.BaseField.kRGBs)
+        for object_name in self.object_info_dict:
+            self.DeclareAbstractOutputPort(
+                "segmented_point_cloud_W_{}".format(object_name),
+                lambda: AbstractValue.Make(
+                    mut.PointCloud(
+                    fields=output_fields)),
+                lambda context, output: self.DoCalcSegmentedPointCloud(
+                    context, output, object_name))
 
     def DefaultSegmentSceneFunction(
             self, scene_points, scene_colors, model, model_image, init_pose):
@@ -141,9 +136,9 @@ class PoseRefinement(LeafSystem):
         z_min = init_z - max_delta
         z_max = init_z + max_delta
 
-        x_indices = self.ThresholdArray(scene_points[:, 0], x_min, x_max)
-        y_indices = self.ThresholdArray(scene_points[:, 1], y_min, y_max)
-        z_indices = self.ThresholdArray(scene_points[:, 2], z_min, z_max)
+        x_indices = ThresholdArray(scene_points[:, 0], x_min, x_max)
+        y_indices = ThresholdArray(scene_points[:, 1], y_min, y_max)
+        z_indices = ThresholdArray(scene_points[:, 2], z_min, z_max)
 
         indices = reduce(np.intersect1d, (x_indices, y_indices, z_indices))
 
@@ -154,7 +149,8 @@ class PoseRefinement(LeafSystem):
         """Returns the pose of the object of interest.
 
         The default pose alignment function runs ICP on the segmented scene
-        with a maximum of 100 iterations and stopping threshold of 1e-8.
+        with a maximum of 100 iterations and stopping threshold of 1e-8. If
+        the segmented scene is empty, it will return the initial pose.
 
         If a custom pose alignment function is supplied, it must have this
         method signature.
@@ -177,11 +173,11 @@ class PoseRefinement(LeafSystem):
                 model, segmented_scene_points, init_guess=init_pose.matrix(),
                 max_iterations=100, tolerance=1e-8)
         else:
-            X_MS = np.eye(4)
+            X_MS = init_pose.matrix()
 
         return X_MS
 
-    def _RefineSinglePose(self, point_cloud, object_info, init_pose):
+    def _SegmentObject(self, point_cloud, object_info, init_pose):
         model = np.load(object_info.model_points_file)
         model_image = Image.open(object_info.model_image_file)
 
@@ -197,22 +193,14 @@ class PoseRefinement(LeafSystem):
                 self.DefaultSegmentSceneFunction(
                     scene_points, scene_colors, model, model_image, init_pose)
 
-        if self.viz:
-            np.save(os.path.join(
-                self.viz_save_location, "scene_points"),
-                scene_points)
-            np.save(os.path.join(
-                self.viz_save_location, "scene_colors"),
-                scene_colors)
-            np.save(os.path.join(
-                self.viz_save_location,
-                "segmented_{}_points".format(object_info.object_name)),
-                segmented_scene_points)
-            np.save(os.path.join(
-                self.viz_save_location,
-                "segmented_{}_colors".format(object_info.object_name)),
-                segmented_scene_colors)
+        return segmented_scene_points, segmented_scene_colors
 
+    def _RefineSinglePose(self, point_cloud, object_info, init_pose):
+        model = np.load(object_info.model_points_file)
+        model_image = Image.open(object_info.model_image_file)
+
+        segmented_scene_points, segmented_scene_colors = \
+            self._SegmentObject(point_cloud, object_info, init_pose)
 
         if object_info.alignment_function:
             return object_info.alignment_function(
@@ -233,128 +221,30 @@ class PoseRefinement(LeafSystem):
             if pose_bundle.get_name(i):
                 object_name = pose_bundle.get_name(i)
                 init_pose = pose_bundle.get_pose(i)
-                X_WObject_refined = self._RefineSinglePose(point_cloud, self.object_info_dict[object_name], init_pose)
+                X_WObject_refined = self._RefineSinglePose(
+                    point_cloud, self.object_info_dict[object_name], init_pose)
                 output.get_mutable_value().set_name(i, object_name)
                 output.get_mutable_value().set_pose(i, X_WObject_refined)
 
-        # init_pose = None
-        # for i in range(pose_bundle.get_num_poses()):
-        #     if pose_bundle.get_name(i) == self.object_name:
-        #         init_pose = pose_bundle.get_pose(i)
-        #         break
-        # X_WDepth = self.camera_configs["right_camera_pose_world"].multiply(
-        #     self.camera_configs["right_camera_pose_internal"])
-        # init_pose = X_WDepth.multiply(init_pose)
-        # point_cloud = self.EvalAbstractInput(
-        #     context, self.point_cloud_port.get_index()).get_value()
-        #
-        # # scene_points, scene_colors = self._TransformPointCloud(
-        # #     point_cloud.xyzs(), point_cloud.rgbs())
-        # scene_points = np.copy(point_cloud.xyzs()).T
-        # scene_colors = np.copy(point_cloud.rgbs()).T
-        #
-        # segmented_scene_points, segmented_scene_colors = self.SegmentScene(
-        #     scene_points, scene_colors, self.model, self.model_image, init_pose)
-        #
-        # if self.viz:
-        #     np.save(os.path.join(
-        #                 self.viz_save_location, "transformed_scene_points"),
-        #             scene_points)
-        #     np.save(os.path.join(
-        #                 self.viz_save_location, "transformed_scene_colors"),
-        #             scene_colors)
-        #     np.save(os.path.join(
-        #                 self.viz_save_location, "segmented_scene_points"),
-        #             segmented_scene_points)
-        #     np.save(os.path.join(
-        #                 self.viz_save_location, "segmented_scene_colors"),
-        #             segmented_scene_colors)
-        #
-        # # init_pose = self._TransformDopePose(self.object_name, init_pose)
-        # X_WObject_refined = self.AlignPose(
-        #     segmented_scene_points, segmented_scene_colors, self.model,
-        #     self.model_image, init_pose)
-        #
-        # output.get_mutable_value().set_matrix(X_WObject_refined)
+    def DoCalcSegmentedPointCloud(self, context, output, object_name):
+        pose_bundle = self.EvalAbstractInput(
+                context, self.pose_bundle_port.get_index()).get_value()
+        point_cloud = self.EvalAbstractInput(
+            context, self.point_cloud_port.get_index()).get_value()
 
-# def TransformDopePose(self, object_name, pose):
-#     transforms = {}
-#     X_Cracker = Isometry3.Identity()
-#     X_Cracker.set_matrix(
-#         np.array([[0, 0, 1., 0 ],
-#                   [ -1., 0, 0, 0 ],
-#                   [ 0, -1., 0, 0 ],
-#                   [ -.014141999483108521, .10347499847412109, .012884999513626099, 1 ]]).T)
-#     transforms['cracker'] = X_Cracker
-#
-#     X_Sugar = Isometry3.Identity()
-#     X_Sugar.set_matrix(
-#         np.array([
-#             [ -3.4877998828887939, 3.4899001121520996, 99.878196716308594, 0 ],
-#             [ -99.926002502441406, -1.7441999912261963, -3.4284999370574951, 0 ],
-#             [ 1.6224000453948975, -99.923896789550781, 3.5481998920440674, 0 ],
-#             [ -1.795199990272522, 8.7579002380371094, 0.38839998841285706, 100 ]]).T / 100.)
-#     transforms['sugar'] = X_Sugar
-#
-#     X_Soup = Isometry3.Identity()
-#     X_Soup.set_matrix(
-#         np.array([
-#             [ 99.144500732421875, 0, -13.052599906921387, 0 ],
-#             [ 13.052599906921387, 0, 99.144500732421875, 0 ],
-#             [ 0, -100, 0, 0 ],
-#             [ -0.1793999969959259, 5.1006999015808105, -8.4443998336791992, 100 ]]).T / 100.)
-#     transforms['soup'] = X_Soup
-#
-#     X_Mustard = Isometry3.Identity()
-#     X_Mustard.set_matrix(
-#         np.array([
-#             [ 92.050498962402344, 0, 39.073101043701172, 0 ],
-#             [ -39.073101043701172, 0, 92.050498962402344, 0 ],
-#             [ 0, -100, 0, 0 ],
-#             [ 0.49259999394416809, 9.2497997283935547, 2.7135999202728271, 100 ]]).T / 100.)
-#     transforms['mustard'] = X_Mustard
-#
-#     X_Gelatin = Isometry3.Identity()
-#     X_Gelatin.set_matrix(
-#         np.array([
-#             [ 22.494199752807617, 97.436996459960938, 0.19629999995231628, 0 ],
-#             [ -97.433296203613281, 22.495100021362305, -0.85030001401901245, 0 ],
-#             [ -0.87269997596740723, 0, 99.996200561523438, 0 ],
-#             [ -0.29069998860359192, 2.3998000621795654, -1.4543999433517456, 100 ]]).T / 100.)
-#     transforms['gelatin'] = X_Gelatin
-#
-#     X_Meat = Isometry3.Identity()
-#     X_Meat.set_matrix(
-#         np.array([
-#             [ 99.862998962402344, 0, -5.2336001396179199, 0 ],
-#             [ 5.2336001396179199, 0, 99.862998962402344, 0 ],
-#             [ 0, -100, 0, 0 ],
-#             [ 3.4065999984741211, 3.8582999706268311, 2.4767000675201416, 100 ]]).T / 100.)
-#     transforms['meat'] = X_Meat
-#
-#     return pose.multiply(transforms[object_name])
-#
-# def ReadPosesFromFile(filename):
-#     pose_dict = {}
-#     row_num = 0
-#     object_name = ""
-#     cur_matrix = np.eye(4)
-#     with open(filename, "r") as f:
-#         for line in f:
-#             line = line.rstrip()
-#             if not line.lstrip(" ").startswith("["):
-#                 object_name = line
-#             else:
-#                 row = np.matrix(line)
-#                 cur_matrix[row_num, :] = row
-#                 row_num += 1
-#                 if row_num == 4:
-#                     pose_dict[object_name] = Isometry3(
-#                         TransformDopePose(object_name, cur_matrix))
-#                     cur_matrix = np.eye(4)
-#                 row_num %= 4
-#
-#     return pose_dict
+        pose_bundle_index = 0
+        for i in range(pose_bundle.get_num_poses()):
+            if pose_bundle.get_name(i) == object_name:
+                pose_bundle_index = i
+                break
+
+        init_pose = pose_bundle.get_pose(pose_bundle_index)
+        object_points, object_colors = self._SegmentObject(
+            point_cloud, self.object_info_dict[object_name], init_pose)
+
+        output.get_mutable_value().resize(object_points.shape[0])
+        output.get_mutable_value().mutable_xyzs()[:] = object_points.T
+        output.get_mutable_value().mutable_rgbs()[:] = object_colors.T
 
 
 def CustomAlignmentFunctionDummy(segmented_scene_points, segmented_scene_colors,
@@ -380,6 +270,7 @@ def CustomAlignmentFunctionDummy(segmented_scene_points, segmented_scene_colors,
     """
 
     return np.eye(4)
+
 
 def ConstructDefaultObjectInfoDict(custom_align):
     object_info_dict = {}
@@ -414,122 +305,114 @@ def ConstructDefaultObjectInfoDict(custom_align):
 
     return object_info_dict
 
-def Main(config_file, model_points_file, model_image_file, dope_pose_file,
-         object_name, viz=True, save_path="", custom_align=False):
+
+def Main(camera_config_file, camera_serial, dope_pose_file, object_name,
+         custom_align=False):
     """Estimates the pose of the given object in a ManipulationStation
     DopeClutterClearing setup.
 
-    @param config_file str. A path to a .yml configuration file for the camera.
-    @param model_points_file str. A path to an .npy file containing the object
-        mesh.
-    @param model_image_file str. A path to an image file containing the object
-        texture.
-    @param viz bool. If True, save the transformed and segmented point clouds as
-        serialized numpy arrays in viz_save_location.
-    @param save_path str. If viz is True, the directory to save the transformed
-        and segmented point clouds. The default is saving all point clouds to
-        the current directory.
+    @param camera_config_file str. A path to a file containing the camera
+        configuration file.
+    @param camera_serial str. The serial number of the camera to use the
+        point cloud from.
+    @param dope_pose_file str. A path to a file containing saved dope poses.
+    @param object_name str. The short name of the object to get the pose of.
     @param custom_align bool. If True, use the example custom pose alignment
         function.
 
     @return A 4x4 Numpy array representing the pose of the object.
     """
 
-    # TODO(kmuhlrad): need a good way of making ObjectInfo dict
-
     object_info_dict = ConstructDefaultObjectInfoDict(custom_align)
 
     builder = DiagramBuilder()
 
-    pose_refinement = builder.AddSystem(
-        PoseRefinement(object_info_dict, viz=viz, viz_save_location=save_path))
+    pose_refinement = builder.AddSystem(PoseRefinement(object_info_dict))
+
+    camera_configs = LoadCameraConfigFile(camera_config_file)
 
     # realsense serial numbers are >> 100
-    use_hardware = \
-        int(pose_refinement.camera_configs["right_camera_serial"]) > 100
+    use_hardware = int(camera_serial) > 100
 
     if use_hardware:
-        camera_ids = [pose_refinement.camera_configs["right_camera_serial"]]
+        camera_ids = [camera_serial]
         station = builder.AddSystem(
             ManipulationStationHardwareInterface(camera_ids))
         station.Connect()
     else:
         station = builder.AddSystem(ManipulationStation())
-        station.SetupClearingStation()
+        station.SetupClutterClearingStation()
         ycb_objects = CreateDefaultYcbObjectList()
         for model_file, X_WObject in ycb_objects:
             station.AddManipulandFromFile(model_file, X_WObject)
         station.Finalize()
 
-    right_camera_info = pose_refinement.camera_configs["right_camera_info"]
-    right_name_prefix = \
-        "camera_" + pose_refinement.camera_configs["right_camera_serial"]
-
     # use scale factor of 1/1000 to convert mm to m
-    dut = builder.AddSystem(
-        mut.DepthImageToPointCloud(right_camera_info, PixelType.kDepth16U, 1e-3))
+    dut = builder.AddSystem(mut.DepthImageToPointCloud(
+        camera_configs[camera_serial]["camera_info"],
+        PixelType.kDepth16U,
+        1e-3,
+        fields=mut.BaseField.kXYZs | mut.BaseField.kRGBs))
 
-    builder.Connect(station.GetOutputPort(right_name_prefix + "_depth_image"),
-                    dut.depth_image_input_port())
-    builder.Connect(station.GetOutputPort(right_name_prefix + "_rgb_image"),
-                    dut.rgb_image_input_port())
+    builder.Connect(
+        station.GetOutputPort("camera_{}_depth_image".format(camera_serial)),
+        dut.depth_image_input_port())
+    builder.Connect(
+        station.GetOutputPort("camera_{}_rgb_image".format(camera_serial)),
+        dut.color_image_input_port())
 
     builder.Connect(dut.point_cloud_output_port(),
-                    pose_refinement.GetInputPort("point_cloud"))
+                    pose_refinement.GetInputPort("point_cloud_W"))
 
     diagram = builder.Build()
     simulator = Simulator(diagram)
 
-    # TODO(kmuhlrad): fix this
+    # TODO(kmuhlrad): return a pose_bundle instead of a dict
     dope_poses = ReadPosesFromFile(dope_pose_file)
-    dope_pose = dope_poses[object_name]
-
 
     context = diagram.GetMutableSubsystemContext(
         pose_refinement, simulator.get_mutable_context())
 
     context.FixInputPort(pose_refinement.GetInputPort(
-        "X_WObject_guess").get_index(), AbstractValue.Make(dope_pose))
-
+        "pose_bundle_W").get_index(), AbstractValue.Make(dope_poses))
 
     station_context = diagram.GetMutableSubsystemContext(
         station, simulator.get_mutable_context())
 
-    station_context.FixInputPort(station.GetInputPort(
-        "iiwa_feedforward_torque").get_index(), np.zeros(7))
-
     q0 = station.GetIiwaPosition(station_context)
     station_context.FixInputPort(station.GetInputPort(
         "iiwa_position").get_index(), q0)
-
+    station_context.FixInputPort(station.GetInputPort(
+        "iiwa_feedforward_torque").get_index(), np.zeros(7))
     station_context.FixInputPort(station.GetInputPort(
         "wsg_position").get_index(), np.array([0.1]))
-
     station_context.FixInputPort(station.GetInputPort(
         "wsg_force_limit").get_index(), np.array([40.0]))
-
 
     simulator.set_publish_every_time_step(False)
     simulator.set_target_realtime_rate(1.0)
     simulator.StepTo(0.1)
 
-    return pose_refinement.GetOutputPort("X_WObject_refined").Eval(context)
+    refined_poses = pose_refinement.GetOutputPort(
+        "refined_pose_bundle_W").Eval(context)
+
+    for i in range(refined_poses.get_num_poses()):
+        if refined_poses.get_name(i) == object_name:
+            return refined_poses.get_pose(i)
+
+    return "couldn't find object"
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--config_file",
+        "--camera_config_file",
         required=True,
-        help="The path to a .yml camera config file")
+        help="The path to a camera configuration .yml file")
     parser.add_argument(
-        "--model_file",
+        "--camera_serial_number",
         required=True,
-        help="The path to a .npy model file")
-    parser.add_argument(
-        "--model_image_file",
-        required=True,
-        help="The path to a .png model texture file")
+        help="The serial number of the camera to look at")
     parser.add_argument(
         "--dope_pose_file",
         required=True,
@@ -539,21 +422,10 @@ if __name__ == "__main__":
         required=True,
         help="One of 'cracker', 'sugar', 'gelatin', 'meat', 'soup', 'mustard'")
     parser.add_argument(
-        "--viz",
-        action="store_true",
-        help="Save the aligned and segmented point clouds for visualization")
-    parser.add_argument(
-        "--viz_save_path",
-        required=False,
-        default="",
-        help="A path to a directory to save point clouds")
-    parser.add_argument(
         "--custom_align",
         action="store_true",
         help="A path to a directory to save point clouds")
     args = parser.parse_args()
 
-    print Main(
-        args.config_file, args.model_file, args.model_image_file,
-        args.dope_pose_file, args.object_name, args.viz, args.viz_save_path,
-        args.custom_align)
+    print Main(args.camera_config_file, args.camera_serial_number,
+               args.dope_pose_file, args.object_name, args.custom_align)

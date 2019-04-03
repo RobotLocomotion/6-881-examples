@@ -324,9 +324,9 @@ def SegmentMustardBottle(scene_points, scene_colors, model, model_image, init_po
 
     segmented_points, segmented_colors = SegmentColor(color_thresholds, area_points, area_colors, model, model_image, init_pose)
 
-    # final_points, final_colors = PruneOutliers(segmented_points, segmented_colors, 0.01, 40)
+    final_points, final_colors = PruneOutliers(segmented_points, segmented_colors, 0.01, 40)
 
-    return segmented_points, segmented_colors
+    return final_points, final_colors
 
 def SegmentGelatinBox(scene_points, scene_colors, model, model_image, init_pose):
     area_points, area_colors = SegmentArea(scene_points, scene_colors, model, model_image, init_pose)
@@ -439,8 +439,8 @@ def main():
 
     # Create the PoseRefinement system.
     object_info_dict = ConstructObjectInfoDict()
-    pose_refinement_system = builder.AddSystem(PoseRefinement(
-        object_info_dict, viz=True))
+    pose_refinement_system = builder.AddSystem(
+        PoseRefinement(object_info_dict))
 
     # Create the PointCloudSynthesis system.
     id_list = station.get_camera_names()
@@ -454,7 +454,7 @@ def main():
     for id in id_list:
         transform_dict[id] = camera_configs[id]["camera_pose_world"].multiply(
             camera_configs[id]["camera_pose_internal"])
-    pc_synth = builder.AddSystem(PointCloudSynthesis(transform_dict, True))
+    pc_synth = builder.AddSystem(PointCloudSynthesis(transform_dict))
 
     X_WCamera = camera_configs[right_serial]["camera_pose_world"].multiply(
         camera_configs[right_serial]["camera_pose_internal"])
@@ -520,6 +520,12 @@ def main():
             meshcat, name="scene_point_cloud"))
         builder.Connect(pc_synth.GetOutputPort("combined_point_cloud_W"),
                         scene_pc_vis.GetInputPort("point_cloud_P"))
+
+        mustard_pc_vis = builder.AddSystem(MeshcatPointCloudVisualizer(
+            meshcat, name="mustard_bottle_point_cloud"))
+        builder.Connect(pose_refinement_system.GetOutputPort(
+            "segmented_point_cloud_P_mustard"),
+                        mustard_pc_vis.GetInputPort("point_cloud_P"))
     else:
         ConnectDrakeVisualizer(builder, station.get_scene_graph(),
                                station.GetOutputPort("pose_bundle"))
