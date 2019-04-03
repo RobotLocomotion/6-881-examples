@@ -8,7 +8,7 @@ from pydrake.geometry import ConnectDrakeVisualizer
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import DiagramBuilder
 from pydrake.systems.lcm import LcmPublisherSystem
-from pydrake.systems.meshcat_visualizer import MeshcatVisualizer
+from pydrake.systems.meshcat_visualizer import MeshcatVisualizer, MeshcatPointCloudVisualizer
 from pydrake.systems.primitives import Demultiplexer, LogOutput
 from pydrake.systems.sensors import ImageToLcmImageArrayT, PixelType
 import pydrake.perception as mut
@@ -17,7 +17,7 @@ from dope_system import DopeSystem
 from perception_tools.point_cloud_synthesis import PointCloudSynthesis
 from pose_refinement import PoseRefinement, ObjectInfo
 from perception_tools.visualization_utils import ThresholdArray
-from perception_tools.load_config_file import LoadConfigFile
+from perception_tools.file_utils import LoadCameraConfigFile
 from sklearn.neighbors import NearestNeighbors
 
 from plan_runner.demo_plans import GeneratePickAndPlaceObjectPlans, GeneratePickAndPlaceObjectTaskPlans
@@ -448,7 +448,7 @@ def main():
     middle_serial = "2"
     right_serial = "0"
 
-    camera_configs = LoadConfigFile(
+    camera_configs = LoadCameraConfigFile(
         "/home/amazon/6-881-examples/perception/config/sim.yml")
     transform_dict = {}
     for id in id_list:
@@ -515,6 +515,11 @@ def main():
             open_browser=args.open_browser))
         builder.Connect(station.GetOutputPort("pose_bundle"),
                         meshcat.get_input_port(0))
+
+        scene_pc_vis = builder.AddSystem(MeshcatPointCloudVisualizer(
+            meshcat, name="scene_point_cloud"))
+        builder.Connect(pc_synth.GetOutputPort("combined_point_cloud_W"),
+                        scene_pc_vis.GetInputPort("point_cloud_P"))
     else:
         ConnectDrakeVisualizer(builder, station.get_scene_graph(),
                                station.GetOutputPort("pose_bundle"))

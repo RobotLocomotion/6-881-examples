@@ -1,12 +1,34 @@
+import numpy as np
 import yaml
 
 from pydrake.math import RigidTransform, RollPitchYaw
 from pydrake.systems.sensors import CameraInfo
 
+def ReadPosesFromFile(filename):
+    pose_dict = {}
+    row_num = 0
+    object_name = ""
+    cur_matrix = np.eye(4)
+    with open(filename, "r") as f:
+        for line in f:
+            line = line.rstrip()
+            if not line.lstrip(" ").startswith("["):
+                object_name = line
+            else:
+                row = np.matrix(line)
+                cur_matrix[row_num, :] = row
+                row_num += 1
+                if row_num == 4:
+                    pose_dict[object_name] = RigidTransform(cur_matrix)
+                    cur_matrix = np.eye(4)
+                row_num %= 4
+    return pose_dict
+
+
 def _xyz_rpy(xyz, rpy):
     return RigidTransform(RollPitchYaw(rpy), xyz)
 
-def LoadConfigFile(config_file):
+def LoadCameraConfigFile(config_file):
     camera_configs = {}
     with open(config_file, 'r') as stream:
         try:

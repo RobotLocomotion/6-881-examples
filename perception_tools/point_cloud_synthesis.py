@@ -7,14 +7,13 @@ from pydrake.systems.sensors import PixelType
 
 import pydrake.perception as mut
 
-from perception_tools.load_config_file import LoadConfigFile
+from perception_tools.file_utils import LoadCameraConfigFile
 
 class PointCloudSynthesis(LeafSystem):
 
-    def __init__(self, transform_dict, viz=False):
+    def __init__(self, transform_dict):
         """
         # TODO(kmuhlrad): make having RGBs optional.
-        # TODO(kmuhlrad): remove viz with MeshcatPointCloudVisualizer
         A system that takes in N point clouds and N Isometry3 transforms that
         put each point cloud in world frame. The system returns one point cloud
         combining all of the transformed point clouds. Each point cloud must
@@ -22,8 +21,6 @@ class PointCloudSynthesis(LeafSystem):
 
         @param transform_dict dict. A map from point cloud IDs to transforms to
             put the point cloud of that ID in world frame.
-        @param viz bool. If True, save the combined point clouds
-            as serialized numpy arrays.
 
         @system{
           @input_port{point_cloud_id0}
@@ -35,8 +32,6 @@ class PointCloudSynthesis(LeafSystem):
         }
         """
         LeafSystem.__init__(self)
-
-        self.viz = viz
 
         self.point_cloud_ports = {}
         self.transform_ports = {}
@@ -98,10 +93,6 @@ class PointCloudSynthesis(LeafSystem):
     def DoCalcOutput(self, context, output):
         scene_points, scene_colors = self._AlignPointClouds(context)
 
-        if self.viz:
-            np.save("scene_points", scene_points)
-            np.save("scene_colors", scene_colors)
-
         output.get_mutable_value().resize(scene_points.shape[1])
         output.get_mutable_value().mutable_xyzs()[:] = scene_points
         output.get_mutable_value().mutable_rgbs()[:] = scene_colors
@@ -150,12 +141,12 @@ if __name__ == "__main__":
 
     id_list = station.get_camera_names()
 
-    camera_configs = LoadConfigFile(
+    camera_configs = LoadCameraConfigFile(
         "/home/amazon/6-881-examples/perception/config/sim.yml")
 
     transform_dict = {}
     for id in id_list:
-        transform_dict[id] = camera_configs[id]["camera_pose_world"].dot(
+        transform_dict[id] = camera_configs[id]["camera_pose_world"].multiply(
             camera_configs[id]["camera_pose_internal"])
 
     # Create the PointCloudSynthesis system.
