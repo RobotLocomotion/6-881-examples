@@ -1,3 +1,11 @@
+# Copyright (c) 2018 NVIDIA Corporation. All rights reserved.
+# This work is licensed under a Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License.
+# https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode
+
+# List of changes made:
+# - Removed ROS calls and replaced them with Drake System calls
+# - Small style changes to align with PEP8
+
 import numpy as np
 import cv2
 import os
@@ -26,17 +34,21 @@ class DopeSystem(LeafSystem):
     that this only runs the inference step of DOPE, so trained weights must be
     provided. Given a single RGB image, DOPE will compute poses of the
     supported YCB objects and produce an image with bounding boxes drawn over
-    all detected objects. See the DOPE documentation for more information.
+    all detected objects. The final poses will be in world frame. See the DOPE
+    documentation for more information.
 
     @system{
       @input_port{rgb_input_image},
       @output_port{annotated_rgb_image},
-      @output_port{pose_bundle}
+      @output_port{pose_bundle_W}
     """
-    def __init__(self, weights_path, config_file, X_WCamera):
+    def __init__(self, weights_path, config_file,
+                 X_WCamera=RigidTransform.Identity()):
         """
         @param weights a path to a directory containing model weights.
         @param config_file a path to a .yaml file with the DOPE configuration.
+        @param X_WCamera a RigidTransform between the camera frame and the
+            world.
         """
         LeafSystem.__init__(self)
 
@@ -57,28 +69,26 @@ class DopeSystem(LeafSystem):
         self.image_data = None
         self.g_draw = None
 
-        # TODO(kmuhlrad): update documentation
         self.X_WCamera = X_WCamera
 
-        # TODO(kmuhlrad): Use camera config file instead of hardcoded values.
-        camera_width = 848
-        camera_height = 480
+        camera_width = self.params["camera_settings"]['width']
+        camera_height = self.params["camera_settings"]['height']
 
         self.rgb_input_image = self.DeclareAbstractInputPort(
             "rgb_input_image", AbstractValue.Make(
                 ImageRgba8U(camera_width, camera_height)))
 
         self.DeclareAbstractOutputPort("annotated_rgb_image",
-                                        lambda: AbstractValue.Make(
+                                       lambda: AbstractValue.Make(
                                             ImageRgba8U(camera_width,
                                                         camera_height)),
-                                        self._DoCalcAnnotatedImage)
+                                       self.DoCalcAnnotatedImage)
 
-        self.DeclareAbstractOutputPort("pose_bundle",
-                                        lambda: AbstractValue.Make(
+        self.DeclareAbstractOutputPort("pose_bundle_W",
+                                       lambda: AbstractValue.Make(
                                             PoseBundle(num_poses=len(
                                                 self.model_names))),
-                                        self._DoCalcPoseBundle)
+                                       self.DoCalcPoseBundle)
 
     def _SetupSolvers(self, weights_path):
         self.models = {}
@@ -129,12 +139,12 @@ class DopeSystem(LeafSystem):
                 )
 
     def _DrawLine(self, point1, point2, lineColor, lineWidth):
-        '''Draws line on image.'''
+        """Draws line on image."""
         if not point1 is None and point2 is not None:
             self.g_draw.line([point1,point2], fill=lineColor, width=lineWidth)
 
     def _DrawDot(self, point, pointColor, pointRadius):
-        '''Draws dot (filled circle) on image.'''
+        """Draws dot (filled circle) on image."""
         if point is not None:
             xy = [
                 point[0] - pointRadius,
@@ -148,10 +158,10 @@ class DopeSystem(LeafSystem):
                            )
 
     def _DrawCube(self, points, color=(255, 0, 0)):
-        '''
+        """
         Draws a cube with a thick solid line across the front top edge and an X
         on the top face.
-        '''
+        """
 
         lineWidthForDrawing = 2
 
@@ -226,16 +236,17 @@ class DopeSystem(LeafSystem):
 
         self.image_data = np.array(im)
 
-    def _DoCalcPoseBundle(self, context, output):
+    def DoCalcPoseBundle(self, context, output):
         self._RunDope(context)
 
         for model in self.poses:
             output.get_mutable_value().set_pose(
-                self.model_names.index(model), self.X_WCamera.multiply(self.poses[model]))
+                self.model_names.index(model),
+                self.X_WCamera.multiply(self.poses[model]))
             output.get_mutable_value().set_name(
                 self.model_names.index(model), model)
 
-    def _DoCalcAnnotatedImage(self, context, output):
+    def DoCalcAnnotatedImage(self, context, output):
         self._RunDope(context)
 
         for i in range(self.image_data.shape[0]):
@@ -271,7 +282,7 @@ if __name__ == "__main__":
         dope_system, simulator.get_mutable_context())
 
     # Check the poses.
-    pose_bundle = dope_system.GetOutputPort("pose_bundle").Eval(context)
+    pose_bundle = dope_system.GetOutputPort("pose_bundle_W").Eval(context)
     for i in range(pose_bundle.get_num_poses()):
         if pose_bundle.get_name(i):
             print pose_bundle.get_name(i), pose_bundle.get_pose(i)
