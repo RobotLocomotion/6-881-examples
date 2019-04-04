@@ -20,7 +20,25 @@ class ObjectInfo(object):
 
     def __init__(self, object_name, model_points_file, model_image_file,
                  segment_scene_function=None, alignment_function=None):
+        """
+        ObjectInfo is a data structure containing the relevant information
+        about objects whose pose will be refined. More information about its
+        use can be found with the PoseRefinement class documentation.
 
+        @param object_name str. The name of the object.
+        @param model_points_file str. The path to a .npy file containing a
+            point cloud of the model object in world frame.
+        @param model_image_file str. The path to an image file containing the
+            colored object texture.
+        @param segment_scene_function function. A function that segments the
+            object out of the entire scene point cloud. For more details about
+            the method signature and expected behavior, see
+            PoseRefinement.DefaultSegmentSceneFunction.
+        @param alignment_function function. A function that takes the
+            segmented point cloud and aligns it with the model point cloud. For
+            more details about the method signature and expected behavior, see
+            PoseRefinement.DefaultAlignPoseFunction.
+        """
         self.object_name = object_name
         self.model_points_file = model_points_file
         self.model_image_file = model_image_file
@@ -144,8 +162,9 @@ class PoseRefinement(LeafSystem):
 
         return scene_points[indices, :], scene_colors[indices, :]
 
-    def DefaultAlignPoseFunction(self, segmented_scene_points,
-            segmented_scene_colors, model, model_image, init_pose):
+    def DefaultAlignPoseFunction(self, segmented_object_points,
+                                 segmented_object_colors, model,
+                                 model_image, init_pose):
         """Returns the pose of the object of interest.
 
         The default pose alignment function runs ICP on the segmented scene
@@ -156,10 +175,10 @@ class PoseRefinement(LeafSystem):
         method signature.
 
         Args:
-        @param segmented_scene_points An Nx3 numpy array of the segmented object
-            points.
-        @param segmented_scene_colors An Nx3 numpy array of the segmented object
-            colors.
+        @param segmented_object_points An Nx3 numpy array of the segmented
+            object points.
+        @param segmented_object_colors An Nx3 numpy array of the segmented
+            object colors.
         @param model A Px3 numpy array representing the object model.
         @param model_image A PIL.Image containing the object texture.
         @param init_pose An Isometry3 representing the initial guess of the
@@ -168,9 +187,9 @@ class PoseRefinement(LeafSystem):
         Returns:
         @return A 4x4 numpy array representing the pose of the object.
         """
-        if len(segmented_scene_points):
+        if len(segmented_object_points):
             X_MS, _, _ = RunICP(
-                model, segmented_scene_points, init_guess=init_pose.matrix(),
+                model, segmented_object_points, init_guess=init_pose.matrix(),
                 max_iterations=100, tolerance=1e-8)
         else:
             X_MS = init_pose.matrix()
@@ -185,31 +204,25 @@ class PoseRefinement(LeafSystem):
         scene_colors = np.copy(point_cloud.rgbs()).T
 
         if object_info.segment_scene_function:
-            segmented_scene_points, segmented_scene_colors = \
-                object_info.segment_scene_function(
+            return object_info.segment_scene_function(
                     scene_points, scene_colors, model, model_image, init_pose)
         else:
-            segmented_scene_points, segmented_scene_colors = \
-                self.DefaultSegmentSceneFunction(
+            return self.DefaultSegmentSceneFunction(
                     scene_points, scene_colors, model, model_image, init_pose)
-
-        return segmented_scene_points, segmented_scene_colors
 
     def _RefineSinglePose(self, point_cloud, object_info, init_pose):
         model = np.load(object_info.model_points_file)
         model_image = Image.open(object_info.model_image_file)
 
-        segmented_scene_points, segmented_scene_colors = \
-            self._SegmentObject(point_cloud, object_info, init_pose)
+        object_points, object_colors = self._SegmentObject(
+            point_cloud, object_info, init_pose)
 
         if object_info.alignment_function:
             return object_info.alignment_function(
-                segmented_scene_points, segmented_scene_colors, model,
-                model_image, init_pose)
+                object_points, object_colors, model, model_image, init_pose)
         else:
             return self.DefaultAlignPoseFunction(
-                segmented_scene_points, segmented_scene_colors, model,
-                model_image, init_pose)
+                object_points, object_colors, model, model_image, init_pose)
 
     def DoCalcOutput(self, context, output):
         pose_bundle = self.EvalAbstractInput(
@@ -300,22 +313,23 @@ def ConstructDefaultObjectInfoDict(custom_align):
         info = ObjectInfo(object_name,
                           model_files[object_name],
                           image_files[object_name],
-                          alignment_function=CustomAlignmentFunctionDummy if custom_align else None)
+                          alignment_function=(
+                              CustomAlignmentFunctionDummy if custom_align else None))
         object_info_dict[object_name] = info
 
     return object_info_dict
 
 
-def Main(camera_config_file, camera_serial, dope_pose_file, object_name,
+def Main(camera_config_file, camera_serial, init_pose_file, object_name,
          custom_align=False):
-    """Estimates the pose of the given object in a ManipulationStation
-    DopeClutterClearing setup.
+    """Estimates the pose of the given object in a ManipulationStation setup.
 
     @param camera_config_file str. A path to a file containing the camera
         configuration file.
     @param camera_serial str. The serial number of the camera to use the
         point cloud from.
-    @param dope_pose_file str. A path to a file containing saved dope poses.
+    @param init_pose_file str. A path to a file containing initial guesses of
+        object poses in world frame.
     @param object_name str. The short name of the object to get the pose of.
     @param custom_align bool. If True, use the example custom pose alignment
         function.
@@ -367,14 +381,16 @@ def Main(camera_config_file, camera_serial, dope_pose_file, object_name,
     diagram = builder.Build()
     simulator = Simulator(diagram)
 
-    # TODO(kmuhlrad): return a pose_bundle instead of a dict
-    dope_poses = ReadPosesFromFile(dope_pose_file)
+    # This is a substitute for running an object pose estimator to test this
+    # system. An example of a valid pose file can be seen in the package
+    # README.md.
+    init_poses = ReadPosesFromFile(init_pose_file)
 
     context = diagram.GetMutableSubsystemContext(
         pose_refinement, simulator.get_mutable_context())
 
     context.FixInputPort(pose_refinement.GetInputPort(
-        "pose_bundle_W").get_index(), AbstractValue.Make(dope_poses))
+        "pose_bundle_W").get_index(), AbstractValue.Make(init_poses))
 
     station_context = diagram.GetMutableSubsystemContext(
         station, simulator.get_mutable_context())
@@ -414,9 +430,9 @@ if __name__ == "__main__":
         required=True,
         help="The serial number of the camera to look at")
     parser.add_argument(
-        "--dope_pose_file",
+        "--init_pose_file",
         required=True,
-        help="The path to a .txt file containing poses returned by DOPE")
+        help="The path to a .txt file containing initial guesses of poses")
     parser.add_argument(
         "--object_name",
         required=True,
@@ -428,4 +444,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print Main(args.camera_config_file, args.camera_serial_number,
-               args.dope_pose_file, args.object_name, args.custom_align)
+               args.init_pose_file, args.object_name, args.custom_align)
