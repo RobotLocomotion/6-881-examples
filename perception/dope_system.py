@@ -6,8 +6,9 @@
 # - Removed ROS calls and replaced them with Drake System calls
 # - Small style changes to align with PEP8
 
-import numpy as np
+import argparse
 import cv2
+import numpy as np
 import os
 import yaml
 
@@ -219,13 +220,11 @@ class DopeSystem(LeafSystem):
                 ori = result["quaternion"]
 
                 CONVERT_SCALE_CM_TO_METERS = 100
-                X_WObject = RigidTransform(
+                self.poses[m] = RigidTransform(
                     Quaternion(ori[3], ori[0], ori[1], ori[2]),
                     [loc[0] / CONVERT_SCALE_CM_TO_METERS,
                      loc[1] / CONVERT_SCALE_CM_TO_METERS,
                      loc[2] / CONVERT_SCALE_CM_TO_METERS])
-
-                self.poses[m] = X_WObject.GetAsIsometry3()
 
                 # Draw the cube.
                 if None not in result['projected_points']:
@@ -256,12 +255,22 @@ class DopeSystem(LeafSystem):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--dope_config_file",
+        required=True,
+        help="The path to a DOPE configuration .yml file")
+    parser.add_argument(
+        "--weights_dir",
+        required=True,
+        help="The path to the directory containing the object weights")
+    args = parser.parse_args()
+
     builder = DiagramBuilder()
 
     # Create the DopeSystem.
-    weights_path = '/home/amazon/catkin_ws/src/dope/weights'
-    config_file = '/home/amazon/catkin_ws/src/dope/config/config_pose.yaml'
-    dope_system = builder.AddSystem(DopeSystem(weights_path, config_file))
+    dope_system = builder.AddSystem(
+        DopeSystem(args.weights_dir, args.dope_config_file))
 
     # Create the ManipulationStation.
     station = builder.AddSystem(ManipulationStation())

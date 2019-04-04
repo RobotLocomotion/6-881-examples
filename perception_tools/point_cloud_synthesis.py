@@ -1,3 +1,4 @@
+import argparse
 import numpy as np
 
 from pydrake.examples.manipulation_station import ManipulationStation, _xyz_rpy
@@ -13,7 +14,6 @@ class PointCloudSynthesis(LeafSystem):
 
     def __init__(self, transform_dict, default_rgb=[255., 255., 255.]):
         """
-        # TODO(kmuhlrad): make having RGBs optional.
         A system that takes in N point clouds and N Isometry3 transforms that
         put each point cloud in world frame. The system returns one point cloud
         combining all of the transformed point clouds. Each point cloud must
@@ -139,6 +139,13 @@ def CreateYcbObjectClutter():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--camera_config_file",
+        required=True,
+        help="The path to a camera configuration .yml file")
+    args = parser.parse_args()
+
     builder = DiagramBuilder()
 
     # Create the ManipulationStation.
@@ -151,8 +158,7 @@ if __name__ == "__main__":
 
     id_list = station.get_camera_names()
 
-    camera_configs = LoadCameraConfigFile(
-        "/home/amazon/6-881-examples/perception/config/sim.yml")
+    camera_configs = LoadCameraConfigFile(args.camera_config_file)
 
     transform_dict = {}
     for id in id_list:

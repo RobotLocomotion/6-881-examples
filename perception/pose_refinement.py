@@ -1,5 +1,6 @@
 import argparse
 import numpy as np
+import os
 
 from PIL import Image
 from perception_tools.file_utils import ReadPosesFromFile, LoadCameraConfigFile
@@ -8,6 +9,7 @@ from perception_tools.visualization_utils import ThresholdArray
 
 import pydrake.perception as mut
 
+from pydrake.common import FindResourceOrThrow
 from pydrake.examples.manipulation_station import (
     ManipulationStation, ManipulationStationHardwareInterface,
     CreateDefaultYcbObjectList)
@@ -297,15 +299,20 @@ def ConstructDefaultObjectInfoDict(custom_align):
         "meat": model_file_base_path + "010_potted_meat_can_textured.npy"
     }
 
-    image_file_base_path = "/home/amazon/drake-build/install/share/drake/" \
-                           "manipulation/models/ycb/meshes/"
+    image_file_base_path = FindResourceOrThrow("drake/manipulation/models/ycb/meshes")
     image_files = {
-        "cracker": image_file_base_path + "003_cracker_box_textured.png",
-        "sugar": image_file_base_path + "004_sugar_box_textured.png",
-        "soup": image_file_base_path + "005_tomato_soup_can_textured.png",
-        "mustard": image_file_base_path + "006_mustard_bottle_textured.png",
-        "gelatin": image_file_base_path + "009_gelatin_box_textured.png",
-        "meat": image_file_base_path + "010_potted_meat_can_textured.png"
+        "cracker": os.path.join(image_file_base_path,
+                                "003_cracker_box_textured.png"),
+        "sugar": os.path.join(image_file_base_path,
+                              "004_sugar_box_textured.png"),
+        "soup": os.path.join(image_file_base_path,
+                             "005_tomato_soup_can_textured.png"),
+        "mustard": os.path.join(image_file_base_path,
+                                "006_mustard_bottle_textured.png"),
+        "gelatin": os.path.join(image_file_base_path,
+                                "009_gelatin_box_textured.png"),
+        "meat": os.path.join(image_file_base_path,
+                             "010_potted_meat_can_textured.png")
     }
 
     for object_name in model_files:
