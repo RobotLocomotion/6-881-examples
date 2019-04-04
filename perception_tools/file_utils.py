@@ -6,6 +6,12 @@ from pydrake.systems.rendering import PoseBundle
 from pydrake.systems.sensors import CameraInfo
 
 def ReadPosesFromFile(filename):
+    """
+    Reads in 4x4 poses from a text file and wraps them into a PoseBundle.
+
+    @param filename str. The path of the .txt file to read.
+    @return a PoseBundle with all of the poses.
+    """
     pose_dict = {}
     row_num = 0
     object_name = ""
@@ -36,26 +42,6 @@ def ReadPosesFromFile(filename):
 
 def _xyz_rpy(xyz, rpy):
     return RigidTransform(RollPitchYaw(rpy), xyz)
-
-def LoadCameraConfigFile(config_file):
-    camera_configs = {}
-    with open(config_file, 'r') as stream:
-        try:
-            config = yaml.load(stream)
-            for camera in config:
-                serial_no, X_WCamera, X_CameraDepth, camera_info = \
-                    _ParseCameraConfig(config[camera])
-                id = str(serial_no)
-                camera_configs[id] = {}
-                camera_configs[id]["camera_pose_world"] = X_WCamera
-                camera_configs[id]["camera_pose_internal"] = \
-                    X_CameraDepth
-                camera_configs[id]["camera_info"] = camera_info
-        except yaml.YAMLError as exc:
-            print "could not parse config file"
-            print exc
-
-    return camera_configs
 
 
 def _ParseCameraConfig(camera_config):
@@ -93,3 +79,39 @@ def _ParseCameraConfig(camera_config):
             camera_info_data["center_x"], camera_info_data["center_y"])
 
     return serial_no, X_WCamera, X_CameraDepth, camera_info
+
+
+def LoadCameraConfigFile(config_file):
+    """
+    Loads camera information from a .yml file into a dictionary. The
+    information is first keyed on the camera's serial number, and then by
+    the type of information. For example, if a camera's serial number is 123,
+    the entry containing its information looks is under camera_configs[123].
+    The subfields are camera_pose_world, camera_pose_internal, and camera_info.
+    camera_pose_world and camera_pose_internal are both RigidTransforms.
+    camera_pose_world is the transform between the optical frame and the world.
+    camera_pose_internal is the transform between the optical frame and depth
+    frame.
+    camera_info is the CameraInfo of the camera.
+
+    @param config_file str. The path to the .yml file with the camera info.
+    @return a dict containing the camera information
+    """
+    camera_configs = {}
+    with open(config_file, 'r') as stream:
+        try:
+            config = yaml.load(stream)
+            for camera in config:
+                serial_no, X_WCamera, X_CameraDepth, camera_info = \
+                    _ParseCameraConfig(config[camera])
+                id = str(serial_no)
+                camera_configs[id] = {}
+                camera_configs[id]["camera_pose_world"] = X_WCamera
+                camera_configs[id]["camera_pose_internal"] = \
+                    X_CameraDepth
+                camera_configs[id]["camera_info"] = camera_info
+        except yaml.YAMLError as exc:
+            print "could not parse config file"
+            print exc
+
+    return camera_configs
