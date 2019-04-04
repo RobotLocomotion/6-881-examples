@@ -48,7 +48,6 @@ class ObjectInfo(object):
 
 class PoseRefinement(LeafSystem):
 
-    # TODO(kmuhlrad): update documentation
     def __init__(self, object_info_dict):
         """
         A system that takes in a point cloud, initial pose guesses, and some

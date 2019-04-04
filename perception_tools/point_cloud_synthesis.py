@@ -11,16 +11,19 @@ from perception_tools.file_utils import LoadCameraConfigFile
 
 class PointCloudSynthesis(LeafSystem):
 
-    def __init__(self, transform_dict):
+    def __init__(self, transform_dict, default_rgb=[255., 255., 255.]):
         """
         # TODO(kmuhlrad): make having RGBs optional.
         A system that takes in N point clouds and N Isometry3 transforms that
         put each point cloud in world frame. The system returns one point cloud
         combining all of the transformed point clouds. Each point cloud must
-        have XYZs and RGBs.
+        have XYZs. RGBs are optional. If absent, those points will be white.
 
         @param transform_dict dict. A map from point cloud IDs to transforms to
             put the point cloud of that ID in world frame.
+        @param default_rgb list. A list containing the RGB values to use in the
+            absence of PointCloud.rgbs. Values should be between 0. and 255.
+            The default is white.
 
         @system{
           @input_port{point_cloud_id0}
@@ -38,6 +41,8 @@ class PointCloudSynthesis(LeafSystem):
 
         self.transform_dict = transform_dict
         self.id_list = self.transform_dict.keys()
+
+        self._default_rgb = np.array(default_rgb)
 
         for id in self.id_list:
             self.point_cloud_ports[id] = self.DeclareAbstractInputPort(
@@ -59,14 +64,19 @@ class PointCloudSynthesis(LeafSystem):
             point_cloud = self.EvalAbstractInput(
                 context, self.point_cloud_ports[id].get_index()).get_value()
 
-            colors[id] = point_cloud.rgbs()
-
             # Make a homogenous version of the points.
             points_h_P = np.vstack((point_cloud.xyzs(),
                                    np.ones((1, point_cloud.xyzs().shape[1]))))
 
             X_WP = self.transform_dict[id].matrix()
             points[id] = X_WP.dot(points_h_P)[:3, :]
+
+            if point_cloud.has_rgbs():
+                colors[id] = point_cloud.rgbs()
+            else:
+                # Need manual broadcasting.
+                colors[id] = np.tile(self._default_rgb.T,
+                                     (1, points[id].shape[1]))
 
         # Combine all the points and colors into two arrays.
         scene_points = None
@@ -150,7 +160,7 @@ if __name__ == "__main__":
             camera_configs[id]["camera_pose_internal"])
 
     # Create the PointCloudSynthesis system.
-    pc_synth = builder.AddSystem(PointCloudSynthesis(transform_dict, True))
+    pc_synth = builder.AddSystem(PointCloudSynthesis(transform_dict))
 
     # Create the duts.
     # use scale factor of 1/1000 to convert mm to m
