@@ -212,15 +212,7 @@ if __name__ == "__main__":
     station_context = diagram.GetMutableSubsystemContext(
         station, simulator.get_mutable_context())
 
-    import cv2
-    for id in id_list:
-        image =station.GetOutputPort(
-            "camera_{}_rgb_image".format(id)).Eval(station_context).data
-        cv2.imshow("image", cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
-        cv2.waitKey(0)
-
     pc = pc_synth.GetOutputPort("combined_point_cloud_W").Eval(context)
-    print pc.size()
 
     q0 = station.GetIiwaPosition(station_context)
     station_context.FixInputPort(station.GetInputPort(
