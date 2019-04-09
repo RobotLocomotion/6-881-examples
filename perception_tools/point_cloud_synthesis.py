@@ -4,8 +4,8 @@ import numpy as np
 from pydrake.examples.manipulation_station import ManipulationStation, _xyz_rpy
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import AbstractValue, DiagramBuilder, LeafSystem
+from pydrake.systems.meshcat_visualizer import MeshcatVisualizer, MeshcatPointCloudVisualizer
 from pydrake.systems.sensors import PixelType
-
 import pydrake.perception as mut
 
 from perception_tools.file_utils import LoadCameraConfigFile
@@ -14,13 +14,13 @@ class PointCloudSynthesis(LeafSystem):
 
     def __init__(self, transform_dict, default_rgb=[255., 255., 255.]):
         """
-        A system that takes in N point clouds and N Isometry3 transforms that
+        A system that takes in N point clouds and N RigidTransforms that
         put each point cloud in world frame. The system returns one point cloud
         combining all of the transformed point clouds. Each point cloud must
         have XYZs. RGBs are optional. If absent, those points will be white.
 
-        @param transform_dict dict. A map from point cloud IDs to transforms to
-            put the point cloud of that ID in world frame.
+        @param transform_dict dict. A map from point cloud IDs to RigidTransforms
+            to put the point cloud of that ID in world frame.
         @param default_rgb list. A list containing the RGB values to use in the
             absence of PointCloud.rgbs. Values should be between 0. and 255.
             The default is white.
@@ -44,12 +44,14 @@ class PointCloudSynthesis(LeafSystem):
 
         self._default_rgb = np.array(default_rgb)
 
+        output_fields = mut.Fields(mut.BaseField.kXYZs | mut.BaseField.kRGBs)
+
         for id in self.id_list:
             self.point_cloud_ports[id] = self.DeclareAbstractInputPort(
                 "point_cloud_P_{}".format(id),
-                AbstractValue.Make(mut.PointCloud()))
+                AbstractValue.Make(mut.PointCloud(fields=output_fields)))
 
-        output_fields = mut.Fields(mut.BaseField.kXYZs | mut.BaseField.kRGBs)
+
         self.DeclareAbstractOutputPort("combined_point_cloud_W",
                                         lambda: AbstractValue.Make(
                                             mut.PointCloud(
@@ -75,7 +77,7 @@ class PointCloudSynthesis(LeafSystem):
                 colors[id] = point_cloud.rgbs()
             else:
                 # Need manual broadcasting.
-                colors[id] = np.tile(self._default_rgb.T,
+                colors[id] = np.tile(np.array([self._default_rgb]).T,
                                      (1, points[id].shape[1]))
 
         # Combine all the points and colors into two arrays.
@@ -144,6 +146,7 @@ if __name__ == "__main__":
         "--camera_config_file",
         required=True,
         help="The path to a camera configuration .yml file")
+    MeshcatVisualizer.add_argparse_argument(parser)
     args = parser.parse_args()
 
     builder = DiagramBuilder()
@@ -186,6 +189,17 @@ if __name__ == "__main__":
         builder.Connect(duts[id].point_cloud_output_port(),
                         pc_synth.GetInputPort("point_cloud_P_{}".format(id)))
 
+    meshcat = builder.AddSystem(MeshcatVisualizer(
+        station.get_scene_graph(), zmq_url=args.meshcat,
+        open_browser=args.open_browser))
+    builder.Connect(station.GetOutputPort("pose_bundle"),
+                    meshcat.get_input_port(0))
+
+    scene_pc_vis = builder.AddSystem(MeshcatPointCloudVisualizer(
+        meshcat, name="scene_point_cloud"))
+    builder.Connect(pc_synth.GetOutputPort("combined_point_cloud_W"),
+                    scene_pc_vis.GetInputPort("point_cloud_P"))
+
     # build diagram
     diagram = builder.Build()
 
@@ -195,5 +209,29 @@ if __name__ == "__main__":
     context = diagram.GetMutableSubsystemContext(
         pc_synth, simulator.get_mutable_context())
 
+    station_context = diagram.GetMutableSubsystemContext(
+        station, simulator.get_mutable_context())
+
+    import cv2
+    for id in id_list:
+        image =station.GetOutputPort(
+            "camera_{}_rgb_image".format(id)).Eval(station_context).data
+        cv2.imshow("image", cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+        cv2.waitKey(0)
+
     pc = pc_synth.GetOutputPort("combined_point_cloud_W").Eval(context)
     print pc.size()
+
+    q0 = station.GetIiwaPosition(station_context)
+    station_context.FixInputPort(station.GetInputPort(
+        "iiwa_position").get_index(), q0)
+    station_context.FixInputPort(station.GetInputPort(
+        "iiwa_feedforward_torque").get_index(), np.zeros(7))
+    station_context.FixInputPort(station.GetInputPort(
+        "wsg_position").get_index(), np.array([0.1]))
+    station_context.FixInputPort(station.GetInputPort(
+        "wsg_force_limit").get_index(), np.array([40.0]))
+
+    simulator.set_publish_every_time_step(False)
+    simulator.set_target_realtime_rate(1.0)
+    simulator.StepTo(0.1)
