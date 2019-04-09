@@ -129,7 +129,7 @@ class PoseRefinement(LeafSystem):
             the points in scene_points.
         @param model A Px3 numpy array representing the object model.
         @param model_image A PIL.Image containing the object texture.
-        @param init_pose An Isometry3 representing the initial guess of the
+        @param init_pose A RigidTransform representing the initial guess of the
             pose of the object.
 
         @return segmented_points An Mx3 numpy array of segmented object points.
@@ -182,7 +182,7 @@ class PoseRefinement(LeafSystem):
             object colors.
         @param model A Px3 numpy array representing the object model.
         @param model_image A PIL.Image containing the object texture.
-        @param init_pose An Isometry3 representing the initial guess of the
+        @param init_pose An RigidTransform representing the initial guess of the
             pose of the object.
 
         Returns:
@@ -276,7 +276,7 @@ def CustomAlignmentFunctionDummy(segmented_scene_points, segmented_scene_colors,
         colors.
     @param model A Px3 numpy array representing the object model.
     @param model_image A PIL.Image containing the object texture.
-    @param init_pose An Isometry3 representing the initial guess of the
+    @param init_pose An RigidTransform representing the initial guess of the
         pose of the object.
 
     Returns:
@@ -299,7 +299,8 @@ def ConstructDefaultObjectInfoDict(custom_align):
         "meat": model_file_base_path + "010_potted_meat_can_textured.npy"
     }
 
-    image_file_base_path = FindResourceOrThrow("drake/manipulation/models/ycb/meshes")
+    image_file_base_path = FindResourceOrThrow(
+        "drake/manipulation/models/ycb/meshes")
     image_files = {
         "cracker": os.path.join(image_file_base_path,
                                 "003_cracker_box_textured.png"),
