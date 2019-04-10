@@ -2,13 +2,12 @@ import argparse
 
 import numpy as np
 
-from pydrake.common.eigen_geometry import Isometry3
 from pydrake.examples.manipulation_station import ManipulationStation, _xyz_rpy
 from pydrake.geometry import ConnectDrakeVisualizer
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import DiagramBuilder
 from pydrake.systems.lcm import LcmPublisherSystem
-from pydrake.systems.meshcat_visualizer import MeshcatVisualizer, MeshcatPointCloudVisualizer
+from pydrake.systems.meshcat_visualizer import MeshcatVisualizer, MeshcatPointCloudVisualizer, MeshcatContactVisualizer
 from pydrake.systems.primitives import Demultiplexer, LogOutput
 from pydrake.systems.sensors import ImageToLcmImageArrayT, PixelType
 import pydrake.perception as mut
@@ -142,7 +141,7 @@ def SegmentArea(scene_points, scene_colors, model, model_image, init_pose):
         the points in scene_points.
     @param model A Px3 numpy array representing the object model.
     @param model_image A PIL.Image containing the object texture.
-    @param init_pose An Isometry3 representing the initial guess of the
+    @param init_pose An RigidTransform representing the initial guess of the
         pose of the object.
 
     @return segmented_points An Mx3 numpy array of segmented object points.
@@ -504,9 +503,9 @@ def main():
 
     # Connect the PoseRefinement system.
     builder.Connect(pc_synth.GetOutputPort("combined_point_cloud_W"),
-                    pose_refinement_system.GetInputPort("point_cloud"))
-    builder.Connect(dope_system.GetOutputPort("pose_bundle"),
-                    pose_refinement_system.GetInputPort("pose_bundle"))
+                    pose_refinement_system.GetInputPort("point_cloud_W"))
+    builder.Connect(dope_system.GetOutputPort("pose_bundle_W"),
+                    pose_refinement_system.GetInputPort("pose_bundle_W"))
 
     # Connect visualization stuff.
     if args.meshcat:
@@ -516,6 +515,13 @@ def main():
         builder.Connect(station.GetOutputPort("pose_bundle"),
                         meshcat.get_input_port(0))
 
+        contact_vis = builder.AddSystem(MeshcatContactVisualizer(
+            meshcat, contact_force_scale=-7.5, plant=station.get_multibody_plant()))
+        builder.Connect(station.GetOutputPort("pose_bundle"),
+                        contact_vis.GetInputPort("pose_bundle"))
+        builder.Connect(station.GetOutputPort("contact_results"),
+                        contact_vis.GetInputPort("contact_results"))
+
         scene_pc_vis = builder.AddSystem(MeshcatPointCloudVisualizer(
             meshcat, name="scene_point_cloud"))
         builder.Connect(pc_synth.GetOutputPort("combined_point_cloud_W"),
@@ -523,8 +529,9 @@ def main():
 
         mustard_pc_vis = builder.AddSystem(MeshcatPointCloudVisualizer(
             meshcat, name="mustard_bottle_point_cloud"))
+        mustard_pc_vis.set_name("other_system")
         builder.Connect(pose_refinement_system.GetOutputPort(
-            "segmented_point_cloud_P_mustard"),
+            "segmented_point_cloud_W_mustard"),
                         mustard_pc_vis.GetInputPort("point_cloud_P"))
     else:
         ConnectDrakeVisualizer(builder, station.get_scene_graph(),
@@ -552,10 +559,18 @@ def main():
         station.GetInputPort("wsg_force_limit").get_index(), [50])
 
     # Door now starts open
-    left_hinge_joint = station.get_multibody_plant().GetJointByName("left_door_hinge")
-    left_hinge_joint.set_angle(station_context, angle=np.pi/2)
-    right_hinge_joint = station.get_multibody_plant().GetJointByName("right_door_hinge")
-    right_hinge_joint.set_angle(station_context, angle=-np.pi/2)
+    # left_hinge_joint = station.get_multibody_plant().GetJointByName("left_door_hinge")
+    # left_hinge_joint.set_angle(station_context, angle=-np.pi/2)
+    # right_hinge_joint = station.get_multibody_plant().GetJointByName("right_door_hinge")
+    # right_hinge_joint.set_angle(station_context, angle=np.pi/2)
+
+    # import cv2
+    # context = diagram.GetMutableSubsystemContext(
+    #     dope_system, simulator.get_mutable_context())
+    # annotated_image = dope_system.GetOutputPort(
+    #     "annotated_rgb_image").Eval(context).data
+    # cv2.imshow("dope image", cv2.cvtColor(annotated_image, cv2.COLOR_RGB2BGR))
+    # cv2.waitKey(0)
 
     simulator.set_publish_every_time_step(False)
     simulator.set_target_realtime_rate(0.0) # go as fast as possible
@@ -563,17 +578,11 @@ def main():
     simulator.Initialize()
     simulator.StepTo(2.0)
 
-    # import cv2
-    context = diagram.GetMutableSubsystemContext(
-        dope_system, simulator.get_mutable_context())
-    # annotated_image = dope_system.GetOutputPort(
-    #     "annotated_rgb_image").Eval(context).data
-    # cv2.imshow("dope image", cv2.cvtColor(annotated_image, cv2.COLOR_RGB2BGR))
-    # cv2.waitKey(0)
+
 
     # Check the poses.
     print("DOPE POSES")
-    pose_bundle = dope_system.GetOutputPort("pose_bundle").Eval(context)
+    pose_bundle = dope_system.GetOutputPort("pose_bundle_W").Eval(context)
     for i in range(pose_bundle.get_num_poses()):
         if pose_bundle.get_name(i) == "mustard":
             import meshcat.geometry as g
@@ -603,10 +612,10 @@ def main():
     }
     p_context = diagram.GetMutableSubsystemContext(
         pose_refinement_system, simulator.get_mutable_context())
+    pose_bundle = pose_refinement_system.GetOutputPort(
+        "refined_pose_bundle_W").Eval(p_context)
     for obj_name in ["soup", "mustard", "meat"]:
         import meshcat.geometry as g
-        pose_bundle = pose_refinement_system.GetOutputPort(
-            "refined_pose_bundle").Eval(p_context)
         for i in range(pose_bundle.get_num_poses()):
             if pose_bundle.get_name(i) == obj_name:
                 pose = pose_bundle.get_pose(i)
