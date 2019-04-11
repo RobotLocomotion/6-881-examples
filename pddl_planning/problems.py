@@ -3,8 +3,9 @@ from __future__ import print_function
 import numpy as np
 import os
 from pydrake.examples.manipulation_station import ManipulationStation, IiwaCollisionModel
-from pydrake.multibody.multibody_tree.parsing import AddModelFromSdfFile
-from pydrake.util.eigen_geometry import Isometry3
+from pydrake.multibody.parsing import Parser
+from pydrake.common.eigen_geometry import Isometry3
+from pydrake.common import FindResourceOrThrow
 
 from pddl_planning.systems import build_manipulation_station
 from pddl_planning.iiwa_utils import DOOR_CLOSED, open_wsg50_gripper
@@ -60,7 +61,7 @@ class Task(object):
     def plant(self):
         return self.mbp
     def movable_bodies(self):
-        movable = {self.mbp.tree().get_body(index) for index in self.doors}
+        movable = {self.mbp.get_body(index) for index in self.doors}
         for model in [self.robot, self.gripper] + list(self.movable):
             movable.update(get_model_bodies(self.mbp, model))
         return movable
@@ -105,9 +106,15 @@ def read_poses_from_file(filename):
                 if row_num == 4:
                     pose_dict[object_name] = Isometry3(cur_matrix)
                     translation = pose_dict[object_name].translation()
-                    translation[2] = -dz_table_top_robot_base
+                    translation[2] += dz_table_top_robot_base
                     pose_dict[object_name].set_translation(translation)
-                    pose_dict[object_name].set_rotation(np.eye(3))
+                    pose_dict[object_name].set_rotation(
+                        np.array([
+                            [1, 0, 0],
+                            [0, 0, 1],
+                            [0, -1, 0]
+                        ])
+                    )
                     cur_matrix = np.eye(4)
                 row_num %= 4
     return pose_dict
@@ -124,7 +131,8 @@ CUPBOARD_SHELVES = [
 
 # https://github.com/kmuhlrad/models/tree/master/ycb_objects
 SDF_PATH_FROM_NAME = {
-    'soup': "models/ycb_objects/soup_can.sdf",
+    'soup': "models/ycb/sdf/005_tomato_soup_can.sdf",
+    # 'soup': "../../models/ycb_objects/soup_can.sdf",
     'meat': "models/ycb_objects/potted_meat_can.sdf",
     'gelatin': "models/ycb_objects/gelatin_box.sdf",
     'mustard': "models/ycb_objects/mustard_bottle.sdf",
@@ -135,7 +143,8 @@ PLANE_FILE_PATH = os.path.join(FILE_DIR, "plane.sdf")
 
 
 def get_sdf_path(model_name):
-    return os.path.join(FILE_DIR, SDF_PATH_FROM_NAME[model_name])
+    return FindResourceOrThrow("drake/manipulation/" + SDF_PATH_FROM_NAME[model_name])
+    # return os.path.join(FILE_DIR, SDF_PATH_FROM_NAME[model_name])
 
 
 def get_z_placement(plant, box_from_geom, item_body, surface_body, surface_index):
@@ -150,20 +159,19 @@ def get_z_placement(plant, box_from_geom, item_body, surface_body, surface_index
     return item_z
 
 def load_station(time_step=0.0, **kwargs):
-    station = ManipulationStation(time_step, IiwaCollisionModel.kBoxCollision)
+    station = ManipulationStation(time_step)
     plant = station.get_mutable_multibody_plant()
     scene_graph = station.get_mutable_scene_graph()
-    station.AddCupboard()
+    station.SetupDefaultStation(IiwaCollisionModel.kBoxCollision)
     robot = plant.GetModelInstanceByName('iiwa')
     gripper = plant.GetModelInstanceByName('gripper')
     table = plant.GetModelInstanceByName('table')
     cupboard = plant.GetModelInstanceByName('cupboard')
 
     model_name = 'soup'
-    item = AddModelFromSdfFile(file_name=get_sdf_path(model_name), model_name=model_name,
-                               plant=plant, scene_graph=scene_graph)
-    ceiling = AddModelFromSdfFile(file_name=PLANE_FILE_PATH, model_name="ceiling",
-                                  plant=plant, scene_graph=scene_graph)
+    parser = Parser(plant=plant)
+    item = parser.AddModelFromFile(file_name=get_sdf_path(model_name), model_name=model_name)
+    ceiling = parser.AddModelFromFile(file_name=PLANE_FILE_PATH, model_name="ceiling")
     weld_to_world(plant, ceiling, create_transform(translation=[0.3257, 0, 1.0]))
     station.Finalize()
 
@@ -226,15 +234,15 @@ def load_dope(time_step=0.0, dope_path=DOPE_PATH, goal_name='soup', is_visualizi
     gripper = plant.GetModelInstanceByName('gripper')
     cupboard = plant.GetModelInstanceByName('cupboard')
 
-    ceiling = AddModelFromSdfFile(file_name=PLANE_FILE_PATH, model_name="ceiling",
-                                  plant=plant, scene_graph=scene_graph)
+    parser = Parser(plant=plant)
+
+    ceiling = parser.AddModelFromFile(file_name=PLANE_FILE_PATH, model_name="ceiling")
     weld_to_world(plant, ceiling, create_transform(translation=[0.3257, 0, 1.1]))
 
     pose_from_name = read_poses_from_file(dope_path)
     model_from_name = {}
     for name in pose_from_name:
-        model_from_name[name] = AddModelFromSdfFile(file_name=get_sdf_path(name), model_name=name,
-                                                    plant=plant, scene_graph=scene_graph)
+        model_from_name[name] = parser.AddModelFromFile(file_name=get_sdf_path(name), model_name=name)
     station.Finalize()
 
     door_names = [

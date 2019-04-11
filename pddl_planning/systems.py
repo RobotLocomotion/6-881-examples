@@ -50,7 +50,7 @@ def connect_plan_runner(builder, station, plan):
     return plan_runner
 
 def build_manipulation_station(station, plan=None, visualize=False):
-    from underactuated.meshcat_visualizer import MeshcatVisualizer
+    from pydrake.systems.meshcat_visualizer import MeshcatVisualizer
 
     builder = DiagramBuilder()
     builder.AddSystem(station)
@@ -60,17 +60,15 @@ def build_manipulation_station(station, plan=None, visualize=False):
         plan_runner = connect_plan_runner(builder, station, plan)
 
     # Add meshcat visualizer
-    plant = station.get_mutable_multibody_plant()
+    # plant = station.get_mutable_multibody_plant()
     scene_graph = station.get_mutable_scene_graph()
     if visualize:
-        viz = MeshcatVisualizer(scene_graph,
-                                is_drawing_contact_force = True,
-                                plant = plant)
+        viz = MeshcatVisualizer(scene_graph)
         builder.AddSystem(viz)
         builder.Connect(station.GetOutputPort("pose_bundle"),
                         viz.GetInputPort("lcm_visualization"))
-        builder.Connect(station.GetOutputPort("contact_results"),
-                        viz.GetInputPort("contact_results"))
+        # builder.Connect(station.GetOutputPort("contact_results"),
+        #                 viz.GetInputPort("contact_results"))
 
     # build diagram
     diagram = builder.Build()

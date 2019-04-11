@@ -1,3 +1,4 @@
+from pydrake.math import RollPitchYaw
 from robot_plans import *
 
 #--------------------------------------------------------------------------------------------------

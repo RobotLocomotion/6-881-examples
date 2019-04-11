@@ -4,15 +4,15 @@ import time
 from pydrake.examples.manipulation_station import (ManipulationStation,
                                     ManipulationStationHardwareInterface)
 from pydrake.geometry import SceneGraph
-from pydrake.multibody.multibody_tree.parsing import AddModelFromSdfFile
 from pydrake.systems.framework import DiagramBuilder
 from pydrake.systems.analysis import Simulator
 from pydrake.common.eigen_geometry import Isometry3
 from pydrake.systems.primitives import Demultiplexer, LogOutput
 
+from pydrake.multibody.parsing import Parser
 
-from underactuated.meshcat_visualizer import MeshcatVisualizer
-# from pydrake.systems.meshcat_visualizer import MeshcatVisualizer
+# from underactuated.meshcat_visualizer import MeshcatVisualizer
+from pydrake.systems.meshcat_visualizer import MeshcatVisualizer
 from plan_runner.manipulation_station_plan_runner import ManipStationPlanRunner
 from plan_runner.manipulation_station_plan_runner_diagram import CreateManipStationPlanRunnerDiagram
 from plan_runner.plan_utils import *
@@ -33,12 +33,12 @@ class ManipulationStationSimulator:
         self.station = ManipulationStation(self.time_step)
         self.station.SetupDefaultStation()
         self.plant = self.station.get_mutable_multibody_plant()
+
+        parser = Parser(self.plant)
         if object_file_path is not None:
-            self.object = AddModelFromSdfFile(
+            self.object = parser.AddModelFromFile(
                 file_name=object_file_path,
-                model_name="object",
-                plant=self.station.get_mutable_multibody_plant(),
-                scene_graph=self.station.get_mutable_scene_graph() )
+                model_name=object_base_link_name)
         self.station.Finalize()
 
         self.simulator = None

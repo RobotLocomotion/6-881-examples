@@ -1,9 +1,3 @@
-import numpy as np
-from pydrake.trajectories import PiecewisePolynomial
-from pydrake.math import RollPitchYaw
-from pydrake.common.eigen_geometry import Isometry3, Quaternion
-from pydrake.examples.manipulation_station import ManipulationStation
-from pydrake.multibody.multibody_tree.multibody_plant import MultibodyPlant
 from plan_utils import *
 
 plan_type_strings = [

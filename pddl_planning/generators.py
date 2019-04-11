@@ -123,7 +123,8 @@ def get_pose_gen(task, context, collisions=True, shrink=0.025):
         collision_pairs = set(product(get_model_bodies(mbp, obj), fixed))
 
         surface_body = mbp.GetBodyByName(surface.body_name, surface.model_index)
-        surface_pose = get_body_pose(context, surface_body)
+        surface_pose = mbp.EvalBodyPoseInWorld(context, surface_body)
+        # surface_pose = get_body_pose(context, surface_body)
         surface_aabb, surface_from_box, _ = box_from_geom[int(surface.model_index), surface.body_name, surface.visual_index]
 
         for surface_box_from_obj_box in sample_aabb_placement(obj_aabb, surface_aabb, shrink=shrink):
@@ -149,13 +150,16 @@ def get_grasp_gen_fn(task):
 
     def gen(obj_name):
         obj = plant.GetModelInstanceByName(obj_name)
+        print(box_from_geom.keys())
         obj_aabb, obj_from_box, obj_shape = box_from_geom[int(obj), get_base_body(plant, obj).name(), 0]
         if obj_shape == 'cylinder':
             grasp_gen = get_cylinder_grasps(obj_aabb, pitch_range=(pitch, pitch))
         elif obj_shape == 'box':
             grasp_gen = get_box_grasps(obj_aabb, pitch_range=(pitch, pitch))
         else:
-            raise NotImplementedError(obj_shape)
+            # TODO(kmuhlrad): stop this probably
+            grasp_gen = get_cylinder_grasps(obj_aabb, pitch_range=(pitch, pitch))
+            # raise NotImplementedError(obj_shape)
         for gripper_from_box in grasp_gen:
             gripper_from_obj = gripper_from_box.multiply(obj_from_box.inverse())
             grasp = Pose(plant, gripper_frame, obj, gripper_from_obj)
@@ -178,7 +182,7 @@ def get_ik_gen_fn(task, context, collisions=True, max_failures=10, step_size=0.0
     approach_vector = 0.15 * np.array([0, -1, 0])
     world_vector = 0.05 * np.array([0, 0, +1])
     gripper_frame = get_base_body(task.mbp, task.gripper).body_frame()
-    door_bodies = {task.mbp.tree().get_body(door_index) for door_index in task.doors}
+    door_bodies = {task.mbp.get_body(door_index) for door_index in task.doors}
     fixed = (task.fixed_bodies() | door_bodies) if collisions else []
     initial_guess = get_state(task.mbp, context)[:task.mbp.num_positions()]
     # Above shelves prevent some placements
@@ -271,11 +275,11 @@ def get_door_grasp(door_body, box_from_geom):
     return gripper_from_box.multiply(handle_from_box.inverse())
 
 
-def get_body_path(body, context, joints, joint_path):
+def get_body_path(plant, body, context, joints, joint_path):
     body_path = []
     for conf in joint_path:
         set_joint_positions(joints, context, conf)
-        body_path.append(get_body_pose(context, body))
+        body_path.append(plant.EvalBodyPoseInWorld(context, body))
     return body_path
 
 
@@ -307,7 +311,7 @@ def get_pull_fn(task, context, collisions=True, max_attempts=25, step_size=np.pi
 
         extend_fn = get_extend_fn(door_joints, resolutions=step_size*np.ones(len(door_joints)))
         door_joint_path = [door_conf1.positions] + list(extend_fn(door_conf1.positions, door_conf2.positions))
-        door_body_path = get_body_path(door_body, context, door_joints, door_joint_path)
+        door_body_path = get_body_path(task.mbp, door_body, context, door_joints, door_joint_path)
         gripper_body_path = [door_pose.multiply(gripper_from_door.inverse()) for door_pose in door_body_path]
 
         for _ in range(max_attempts):
