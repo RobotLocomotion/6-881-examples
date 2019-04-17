@@ -229,6 +229,7 @@ class Move(Behaviour):
     def update(self):
         # TODO(kmuhlrad): figure this out
 
+
         # check pose of robot
         # if at conf2, return SUCCESS
         # update conditions
@@ -239,7 +240,10 @@ class Move(Behaviour):
 
         # if some error occurs, return FAILURE
 
-        return Status.FAILURE
+        self.task.at_conf[self.task.robot] = self.conf2
+        self.can_move[self.task.robot] = False
+
+        return Status.SUCCESS
 
 
 class Pick(Behaviour):
@@ -282,7 +286,12 @@ class Pick(Behaviour):
 
         # if some error occurs, return FAILURE
 
-        return Status.FAILURE
+        self.task.can_move[self.task.robot] = True
+        self.task.at_grasp[self.task.robot][self.obj] = self.grasp
+        self.task.hand_empty[self.task.robot] = False
+        self.task.at_pose[self.obj] = False
+
+        return Status.SUCCESS
 
 
 class Place(Behaviour):
@@ -325,7 +334,12 @@ class Place(Behaviour):
 
         # if some error occurs, return FAILURE
 
-        return Status.FAILURE
+        self.task.at_pose[self.obj] = self.pose
+        self.task.hand_empty[self.task.robot] = True
+        self.task.at_grasp[self.task.robot][self.obj] = False
+        self.task.can_move[self.robot] = True
+
+        return Status.SUCCESS
 
 
 class Pull(Behaviour):
@@ -371,4 +385,8 @@ class Pull(Behaviour):
 
         # if some error occurs, return FAILURE
 
-        return Status.FAILURE
+        self.task.at_conf[self.task.robot] = self.r_conf2
+        self.task.at_conf[self.door] = self.d_conf2
+        self.task.can_move[self.task.robot] = True
+        
+        return Status.SUCCESS
