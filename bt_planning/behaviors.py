@@ -95,8 +95,7 @@ class DoorOpen(Behaviour):
 ########################## Actions ##########################
 
 
-# TODO(kmuhlrad): finish implementations of things and figure out if all
-# params are actually needed for the actions and not just condition checking
+# TODO(kmuhlrad): finish implementations of things
 class Pick(Behaviour):
     def __init__(self, obj, name="Pick"):
         """
@@ -128,6 +127,8 @@ class Pick(Behaviour):
         #   set conditions below
         #   return SUCCESS
 
+        # the actual check should be if the robot finished running the
+        # trajectory
         if self.counter < 1:
             self.blackboard.set("robot_moving", True)
             # TODO(kmuhlrad): replace with actually picking up object
@@ -176,6 +177,8 @@ class Place(Behaviour):
         #   set conditions below
         #   return SUCCESS
 
+        # the actual check should be if the robot finished running the
+        # trajectory
         if self.counter < 1:
             self.blackboard.set("robot_moving", True)
             # TODO(kmuhlrad): replace with actually placing object
@@ -223,6 +226,8 @@ class OpenDoor(Behaviour):
         #   set the conditions below
         #   return SUCCESS
 
+        # the actual check should be if the robot finished running the
+        # trajectory
         if self.counter < 1:
             self.blackboard.set("robot_moving", True)
             # TODO(kmuhlrad): replace with actually opening the door
