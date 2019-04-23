@@ -240,3 +240,124 @@ class OpenDoor(Behaviour):
         self.blackboard.set("robot_holding", None)
 
         return Status.SUCCESS
+
+
+########################## Drake Actions ##########################
+
+
+class PickDrake(Behaviour):
+    def __init__(self, obj, name="Pick"):
+        """
+        Pick up the specified object. When the robot finishes and is
+        holding the object, the node returns SUCCESS. While picking up the
+        object, the node returns RUNNING. If the robot is unable to pick up the
+        object, it will stop and the node will return FAILURE.
+
+        @param obj str. The name of the object to pick, such as "soup".
+        @param name str. The name of the BT node.
+        """
+        super(PickDrake, self).__init__(name)
+        self.blackboard = Blackboard()
+        self.obj = obj
+
+    def initialise(self):
+        self.sent = False
+
+    def update(self):
+        if (self.blackboard.get("robot_holding") == self.obj
+                and not self.blackboard.get("robot_moving")):
+            self.feedback_message = "Successfully picked up {}".format(
+                self.obj)
+            return Status.SUCCESS
+
+        if not self.blackboard.get("robot_moving"):
+            if not self.sent:
+                # TODO(kmuhlrad): plan stuff
+                self.feedback_message = "Sent plan to pick up {}".format(
+                    self.obj)
+                self.sent = True
+                return Status.RUNNING
+            if not self.blackboard.get("robot_holding") == self.obj:
+                self.feedback_message = "Could not pick up {}".format(self.obj)
+                return Status.FAILURE
+
+        return Status.RUNNING
+
+
+class PlaceDrake(Behaviour):
+    def __init__(self, obj, surface, name="Place"):
+        """
+        Place up the specified object on the given surface. When the robot
+        finishes and is no longer holding the object, the node returns SUCCESS.
+        While placing the object, the node returns RUNNING. If the robot is
+        unable to place the object, it will stop and the node will return
+        FAILURE.
+
+        @param obj str. The name of the object to place, such as "soup".
+        @param surface str. The surface on which to place the object such as
+            "bottom_shelf".
+        @param name str. The name of the BT node.
+        """
+        super(PlaceDrake, self).__init__(name)
+        self.blackboard = Blackboard()
+        self.obj = obj
+        self.surface = surface
+
+    def initialise(self):
+        self.sent = False
+
+    def update(self):
+        if (self.blackboard.get("{}_on".format(self.obj)) == self.surface
+                and not self.blackboard.get("robot_moving")):
+            return Status.SUCCESS
+
+        if not self.blackboard.get("robot_moving"):
+            if not self.sent:
+                # TODO(kmuhlrad): plan stuff
+                self.feedback_message = "Sent plan to place {} on {}".format(
+                    self.obj, self.surface)
+                self.sent = True
+                return Status.RUNNING
+            if not self.blackboard.get("{}_on".format(self.obj)) == self.surface:
+                self.feedback_message = "Could not place {} on {}".format(
+                    self.obj, self.surface)
+                return Status.FAILURE
+
+        return Status.RUNNING
+
+
+class OpenDoorDrake(Behaviour):
+    def __init__(self, door, name="OpenDoor"):
+        """
+        Open the specified door. When the robot finishes opening the door, the
+        node returns SUCCESS. While opening the door, the node returns RUNNING.
+        If the robot is unable to open the door, it will stop and the node will
+        return FAILURE.
+
+        @param door str. The name of the door to open, such as "left_door".
+        @param name str. The name of the BT node.
+        """
+        super(OpenDoorDrake, self).__init__(name)
+        self.blackboard = Blackboard()
+        self.door = door
+
+    def initialise(self):
+        self.sent = False
+
+    def update(self):
+        if (self.blackboard.get("{}_open".format(self.door))
+                and not self.blackboard.get("robot_moving")):
+            return Status.SUCCESS
+
+        if not self.blackboard.get("robot_moving"):
+            if not self.sent:
+                # TODO(kmuhlrad): plan stuff
+                self.feedback_message = "Sent plan to open {}".format(
+                    self.door)
+                self.sent = True
+                return Status.RUNNING
+            if not self.blackboard.get("{}_open".format(self.door)):
+                self.feedback_message = "Could not open {}".format(self.door)
+                return Status.FAILURE
+
+        return Status.RUNNING

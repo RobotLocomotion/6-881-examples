@@ -11,6 +11,14 @@ from pydrake.systems.rendering import PoseBundle
 
 from perception_tools.file_utils import LoadCameraConfigFile
 
+from py_trees.blackboard import Blackboard
+from behaviors import *
+import py_trees
+from py_trees.composites import Selector, Sequence
+from py_trees.meta import inverter
+
+import time
+
 class BehaviorTree(LeafSystem):
 
     def __init__(self, root):
@@ -37,11 +45,14 @@ class BehaviorTree(LeafSystem):
         """
         LeafSystem.__init__(self)
 
+        self.blackboard = Blackboard()
         self.root = root
-        self.root.setup(timeout=15)
+        self.root.setup_with_descendents(timeout=15)
+
+        self.tick_counter = 0
 
         # TODO(kmuhlrad): figure out size of pose_bundle
-        self.pose_bundle_port = self.DeclareAbstractInputPort(
+        self.pose_bundle_input_port = self.DeclareAbstractInputPort(
             "pose_bundle_W", AbstractValue.Make(PoseBundle()))
 
         # iiwa position input port
@@ -64,78 +75,105 @@ class BehaviorTree(LeafSystem):
 
         # TODO(kmuhlrad): add output ports
 
-    def UpdateBlackboard(self, context):
+    def UpdateBlackboard(self, pose_bundle, iiwa_q, iiwa_v, wsg_q, wsg_F):
         """
-        Evaluate all the input ports and update the blackboard accordingly.
+        Update the blackboard according to the input port values.
         This is so conditions can be checked only by reading the blackboard
         and don't need to know about ports at all. This method should always
         be called before ticking the tree.
 
-        :param context:
-        :return:
+        @param iiwa_q:
+        @param iiwa_v:
+        @param wsg_q:
+        @param wsg_F:
+
+        @return:
         """
+        pass
 
     def Tick(self, context, output):
-        self.UpdateBlackboard(context)
+        # Evaluate ports
+        pose_bundle = self.EvalAbstractInput(
+            context, self.pose_bundle_input_port.get_index()).get_value()
+        iiwa_q = self.EvalAbstractInput(
+            context, self.iiwa_position_input_port.get_index()).get_value()
+        iiwa_v = self.EvalAbstractInput(
+            context, self.iiwa_velocity_input_port.get_index()).get_value()
+        wsg_q = self.EvalAbstractInput(
+            context, self.gripper_position_input_port.get_index()).get_value()
+        wsg_F = self.EvalAbstractInput(
+            context, self.gripper_force_input_port.get_index()).get_value()
 
-        # Also use the blackboard to update the output port? So for example in
-        # a Place behavior, it would write the controller type and data to
-        # the blackboard, and then that would be read and set to this output
-        # port?
+        self.UpdateBlackboard(pose_bundle, iiwa_q, iiwa_v, wsg_q, wsg_F)
 
+        print("\n--------- Tick {0} ---------\n".format(self.tick_counter))
         self.root.tick_once()
+        print("\n")
+        print("{}".format(py_trees.display.print_ascii_tree(self.root, show_status=True)))
+        print(self.blackboard)
+        time.sleep(1.0)
+
+        self.tick_counter += 1
 
         # output.get_mutable_value()
 
 
+def make_root():
+    # conditions
+    holding_soup = Holding("soup")
+    soup_on_shelf = On("soup", "bottom_shelf")
+    left_door_open = DoorOpen("left_door")
+    moving_inverter = inverter(RobotMoving)("MovingInverter")
+    gripper_empty = inverter(Holding)("soup", "GripperEmpty")
+
+    # actions
+    pick_soup = PickDrake("soup")
+    place_soup = PlaceDrake("soup", "bottom_shelf")
+    open_left_door = OpenDoorDrake("left_door")
+
+    root = Selector(name="Root")
+
+    soup_on_shelf_seq = Sequence(name="SoupOnShelfSeq")
+
+    open_door_sel = Selector(name="OpenDoorSel")
+    open_door_seq = Sequence(name="OpenDoorSeq")
+
+    pick_soup_sel = Selector(name="PickSoupSel")
+    pick_soup_seq = Sequence(name="PickSoupSeq")
+
+    soup_on_shelf_seq.add_children([open_door_sel, pick_soup_sel, place_soup])
+    open_door_sel.add_children([left_door_open, open_door_seq])
+    open_door_seq.add_children(
+        [gripper_empty, moving_inverter, open_left_door])
+
+    pick_soup_sel.add_children([holding_soup, pick_soup_seq])
+    pick_soup_seq.add_children([gripper_empty, moving_inverter, pick_soup])
+
+    root.add_children([soup_on_shelf, soup_on_shelf_seq])
+
+    return root
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--camera_config_file",
-        required=True,
-        help="The path to a camera configuration .yml file")
     MeshcatVisualizer.add_argparse_argument(parser)
     args = parser.parse_args()
 
+    py_trees.logging.level = py_trees.logging.Level.DEBUG
+    root = make_root()
+
     builder = DiagramBuilder()
+
+    # Create the BehaviorTree
+    bt = BehaviorTree(root)
 
     # Create the ManipulationStation.
     station = builder.AddSystem(ManipulationStation())
     station.SetupDefaultStation()
-    ycb_objects = CreateYcbObjectClutter()
-    for model_file, X_WObject in ycb_objects:
-        station.AddManipulandFromFile(model_file, X_WObject)
+    soup_file = ""
+    X_WSoup = None
+    station.AddManipulandFromFile(soup_file, X_WSoup)
     station.Finalize()
-
-    id_list = station.get_camera_names()
-
-    camera_configs = LoadCameraConfigFile(args.camera_config_file)
-
-    transform_dict = {}
-    for id in id_list:
-        transform_dict[id] = camera_configs[id]["camera_pose_world"].multiply(
-            camera_configs[id]["camera_pose_internal"])
-
-    # Create the PointCloudSynthesis system.
-    pc_synth = builder.AddSystem(PointCloudSynthesis(transform_dict))
-
-    # Create the duts.
-    # use scale factor of 1/1000 to convert mm to m
-    duts = {}
-    for id in id_list:
-        duts[id] = builder.AddSystem(mut.DepthImageToPointCloud(
-            camera_configs[id]["camera_info"], PixelType.kDepth16U, 1e-3,
-            fields=mut.BaseField.kXYZs | mut.BaseField.kRGBs))
-
-        builder.Connect(
-            station.GetOutputPort("camera_{}_rgb_image".format(id)),
-            duts[id].color_image_input_port())
-        builder.Connect(
-            station.GetOutputPort("camera_{}_depth_image".format(id)),
-            duts[id].depth_image_input_port())
-
-        builder.Connect(duts[id].point_cloud_output_port(),
-                        pc_synth.GetInputPort("point_cloud_P_{}".format(id)))
 
     meshcat = builder.AddSystem(MeshcatVisualizer(
         station.get_scene_graph(), zmq_url=args.meshcat,
@@ -143,10 +181,18 @@ if __name__ == "__main__":
     builder.Connect(station.GetOutputPort("pose_bundle"),
                     meshcat.get_input_port(0))
 
-    scene_pc_vis = builder.AddSystem(MeshcatPointCloudVisualizer(
-        meshcat, name="scene_point_cloud"))
-    builder.Connect(pc_synth.GetOutputPort("combined_point_cloud_W"),
-                    scene_pc_vis.GetInputPort("point_cloud_P"))
+    builder.Connect(station.GetOutputPort("pose_bundle"),
+                    bt.GetInputPort("pose_bundle"))
+    builder.Connect(station.GetOutputPort("iiwa_position_measured"),
+                    bt.GetInputPort("iiwa_position"))
+    builder.Connect(station.GetOutputPort("iiwa_velocity_estimated"),
+                    bt.GetInputPort("iiwa_velocity"))
+    builder.Connect(station.GetOutputPort("wsg_state_measured"),
+                    bt.GetInputPort("gripper_position"))
+    builder.Connect(station.GetOutputPort("wsg_force_measured"),
+                    bt.GetInputPort("gripper_force"))
+
+    # TODO(kmuhlrad): hook up the beginning of the bt
 
     # build diagram
     diagram = builder.Build()
@@ -154,13 +200,8 @@ if __name__ == "__main__":
     # construct simulator
     simulator = Simulator(diagram)
 
-    context = diagram.GetMutableSubsystemContext(
-        pc_synth, simulator.get_mutable_context())
-
     station_context = diagram.GetMutableSubsystemContext(
         station, simulator.get_mutable_context())
-
-    pc = pc_synth.GetOutputPort("combined_point_cloud_W").Eval(context)
 
     q0 = station.GetIiwaPosition(station_context)
     station_context.FixInputPort(station.GetInputPort(
