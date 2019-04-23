@@ -21,18 +21,10 @@ import time
 
 class BehaviorTree(LeafSystem):
 
-    def __init__(self, root):
+    def __init__(self, root, object_names, door_names, surface_names, plant, plant_context):
         """
-        A system that takes in N point clouds and N RigidTransforms that
-        put each point cloud in world frame. The system returns one point cloud
-        combining all of the transformed point clouds. Each point cloud must
-        have XYZs. RGBs are optional. If absent, those points will be white.
-
-        @param transform_dict dict. A map from point cloud IDs to RigidTransforms
-            to put the point cloud of that ID in world frame.
-        @param default_rgb list. A list containing the RGB values to use in the
-            absence of PointCloud.rgbs. Values should be between 0. and 255.
-            The default is white.
+        # TODO(kmuhlrad): eventually remove the plant argument, but it makes
+        # things easy to start running now
 
         @system{
           @input_port{point_cloud_id0}
@@ -51,9 +43,19 @@ class BehaviorTree(LeafSystem):
 
         self.tick_counter = 0
 
+        self.object_names = object_names
+        self.door_names = door_names
+        self.surface_names = surface_names
+
+        self.plant = plant
+        self.plant_context = plant_context
+
+        self._cupboard_shelves = [
+            'bottom', 'shelf_lower', 'shelf_upper', 'top']
+
         # TODO(kmuhlrad): figure out size of pose_bundle
         self.pose_bundle_input_port = self.DeclareAbstractInputPort(
-            "pose_bundle_W", AbstractValue.Make(PoseBundle()))
+            "pose_bundle_W", AbstractValue.Make(PoseBundle(num_poses=0)))
 
         # iiwa position input port
         self.iiwa_position_input_port = \
@@ -88,18 +90,55 @@ class BehaviorTree(LeafSystem):
         @param wsg_F: The current gripper force.
         """
 
+        # robot_moving
         if iiwa_v == 0:
             self.blackboard.set("robot_moving", False)
         else:
             self.blackboard.set("robot_moving", True)
 
-        # also need to set:
-
+        # TODO(kmuhlrad): remove plant, make less specific
         # obj_on, surface
+        for obj in self.object_names:
+            for surface in self.surface_names:
+                cupboard = self.plant.GetModelInstanceByName("cupboard")
+                shelf_name = self.plant.GetBodyByName("top_and_bottom", cupboard)
+                shelf_index = self._cupboard_shelves.index(surface)
+                shelf_body = self.plant.GetBodyByName(shelf_name, shelf_index)
+                shelf_pose = self.plant.EvalBodyPoseInWorld(
+                    self.plant_context, shelf_body)
+
+                obj_body = self.plant.GetBodyByName(obj, 0)
+                obj_pose = self.plant.EvalBodyPoseInWorld(
+                    self.plant_context, obj_body)
+
+                z_diff = obj_pose.translation()[2] - shelf_pose.translation()[2]
+                if abs(z_diff) < 0.01:
+                    self.blackboard.set("{}_on".format(obj), surface)
 
         # door_open
+        for door in self.door_names:
+            door_angle = self.plant.GetJointByName(
+                "{}_hinge".format(door)).get_angle(self.plant_context)
+            if abs(door_angle) >= np.pi / 3:
+                self.blackboard.set("{}_open".format(door), True)
+            else:
+                self.blackboard.set("{}_open".format(door), False)
 
         # robot_holding, obj
+        for obj in self.object_names:
+            if wsg_q > 0 and wsg_F > 0:
+                obj_body = self.plant.GetBodyByName(obj, 0)
+                obj_pose = self.plant.EvalBodyPoseInWorld(
+                    self.plant_context, obj_body)
+
+                gripper_body = self.plant.GetBodyByName("gripper", 0)
+                gripper_pose = self.plant.EvalBodyPoseInWorld(
+                    self.plant_context, gripper_body)
+
+                distance = np.linalg.norm(
+                    obj_pose.translation() - gripper_pose.translation())
+                if distance < 0.01:
+                    self.blackboard.set("robot_holding", obj)
 
 
     def Tick(self, context, output):
@@ -175,9 +214,6 @@ if __name__ == "__main__":
 
     builder = DiagramBuilder()
 
-    # Create the BehaviorTree
-    bt = BehaviorTree(root)
-
     # Create the ManipulationStation.
     station = builder.AddSystem(ManipulationStation())
     station.SetupDefaultStation()
@@ -192,6 +228,19 @@ if __name__ == "__main__":
     builder.Connect(station.GetOutputPort("pose_bundle"),
                     meshcat.get_input_port(0))
 
+    object_names = ["soup"]
+    door_names = ["left_door"]
+    surface_names = ["shelf_lower"]
+
+    # Create the BehaviorTree
+    plant = station.get_multibody_plant()
+    bt = BehaviorTree(root,
+                      object_names,
+                      door_names,
+                      surface_names,
+                      plant,
+                      plant.get_mutable_context())
+
     builder.Connect(station.GetOutputPort("pose_bundle"),
                     bt.GetInputPort("pose_bundle"))
     builder.Connect(station.GetOutputPort("iiwa_position_measured"),
@@ -203,7 +252,7 @@ if __name__ == "__main__":
     builder.Connect(station.GetOutputPort("wsg_force_measured"),
                     bt.GetInputPort("gripper_force"))
 
-    # TODO(kmuhlrad): hook up the beginning of the bt
+    # TODO(kmuhlrad): hook up the beginning of the manipulation station
 
     # build diagram
     diagram = builder.Build()
