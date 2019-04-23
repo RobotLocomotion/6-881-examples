@@ -82,14 +82,25 @@ class BehaviorTree(LeafSystem):
         and don't need to know about ports at all. This method should always
         be called before ticking the tree.
 
-        @param iiwa_q:
-        @param iiwa_v:
-        @param wsg_q:
-        @param wsg_F:
-
-        @return:
+        @param iiwa_q: The current iiwa joint angles.
+        @param iiwa_v: The curernt iiwa joint velocities.
+        @param wsg_q: The current gripper setpoint.
+        @param wsg_F: The current gripper force.
         """
-        pass
+
+        if iiwa_v == 0:
+            self.blackboard.set("robot_moving", False)
+        else:
+            self.blackboard.set("robot_moving", True)
+
+        # also need to set:
+
+        # obj_on, surface
+
+        # door_open
+
+        # robot_holding, obj
+
 
     def Tick(self, context, output):
         # Evaluate ports
