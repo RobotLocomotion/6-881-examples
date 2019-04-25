@@ -8,6 +8,7 @@ from pydrake.systems.meshcat_visualizer import MeshcatVisualizer, MeshcatPointCl
 from pydrake.systems.sensors import PixelType
 import pydrake.perception as mut
 from pydrake.systems.rendering import PoseBundle
+from pydrake.math import RigidTransform, RotationMatrix, RollPitchYaw
 
 from perception_tools.file_utils import LoadCameraConfigFile
 
@@ -21,7 +22,7 @@ import time
 
 class BehaviorTree(LeafSystem):
 
-    def __init__(self, root, object_names, door_names, surface_names, plant, plant_context):
+    def __init__(self, root, object_names, door_names, surface_names, plant, plant_context=None):
         """
         # TODO(kmuhlrad): eventually remove the plant argument, but it makes
         # things easy to start running now
@@ -39,7 +40,7 @@ class BehaviorTree(LeafSystem):
 
         self.blackboard = Blackboard()
         self.root = root
-        self.root.setup_with_descendents(timeout=15)
+        self.root.setup(timeout=15)
 
         self.tick_counter = 0
 
@@ -53,7 +54,6 @@ class BehaviorTree(LeafSystem):
         self._cupboard_shelves = [
             'bottom', 'shelf_lower', 'shelf_upper', 'top']
 
-        # TODO(kmuhlrad): figure out size of pose_bundle
         self.pose_bundle_input_port = self.DeclareAbstractInputPort(
             "pose_bundle_W", AbstractValue.Make(PoseBundle(num_poses=0)))
 
@@ -69,7 +69,7 @@ class BehaviorTree(LeafSystem):
 
         self.gripper_position_input_port = \
             self.DeclareVectorInputPort(
-                "gripper_position", BasicVector(1))
+                "gripper_position", BasicVector(2))
 
         self.gripper_force_input_port = \
             self.DeclareVectorInputPort(
@@ -77,7 +77,19 @@ class BehaviorTree(LeafSystem):
 
         # TODO(kmuhlrad): add output ports
 
-    def UpdateBlackboard(self, pose_bundle, iiwa_q, iiwa_v, wsg_q, wsg_F):
+        self.status_output_port = self.DeclareVectorOutputPort(
+            "status", BasicVector(1), self.Tick)
+
+    def _ParsePoses(self, pose_bundle):
+        pose_dict = {}
+
+        for i in range(pose_bundle.get_num_poses()):
+            if pose_bundle.get_name(i):
+                pose_dict[pose_bundle.get_name(i).split("::")[-1]] = pose_bundle.get_pose(i)
+
+        return pose_dict
+
+    def UpdateBlackboard(self, pose_dict, iiwa_q, iiwa_v, wsg_q, wsg_F):
         """
         Update the blackboard according to the input port values.
         This is so conditions can be checked only by reading the blackboard
@@ -85,60 +97,82 @@ class BehaviorTree(LeafSystem):
         be called before ticking the tree.
 
         @param iiwa_q: The current iiwa joint angles.
-        @param iiwa_v: The curernt iiwa joint velocities.
+        @param iiwa_v: The current iiwa joint velocities.
         @param wsg_q: The current gripper setpoint.
         @param wsg_F: The current gripper force.
         """
 
         # robot_moving
-        if iiwa_v == 0:
+        if np.all(np.isclose(
+                iiwa_v.get_value(), np.zeros(iiwa_v.get_value().shape))):
             self.blackboard.set("robot_moving", False)
         else:
             self.blackboard.set("robot_moving", True)
 
-        # TODO(kmuhlrad): remove plant, make less specific
+        # TODO(kmuhlrad): make less specific
         # obj_on, surface
+        # TODO(kmuhlrad): make these class variables
+        shelf_thickness = 0.016 / 2.
+        surface_translations = {
+            'bottom': -0.3995,
+            'shelf_lower': -0.13115,
+            'shelf_upper': 0.13155,
+            'top': 0.3995
+        }
+        obj_dims = {
+            'cracker': 0.21 / 2.,
+            'sugar': 0.18 / 2.,
+            'soup': 0.1 / 2.,
+            'mustard': 0.19 / 2.,
+            'gelatin': 0.073 / 2.,
+            'meat': 0.084 / 2.
+        }
         for obj in self.object_names:
             for surface in self.surface_names:
-                cupboard = self.plant.GetModelInstanceByName("cupboard")
-                shelf_name = self.plant.GetBodyByName("top_and_bottom", cupboard)
-                shelf_index = self._cupboard_shelves.index(surface)
-                shelf_body = self.plant.GetBodyByName(shelf_name, shelf_index)
-                shelf_pose = self.plant.EvalBodyPoseInWorld(
-                    self.plant_context, shelf_body)
+                cupboard_pose = pose_dict["top_and_bottom"]
+                shelf_z = cupboard_pose.translation()[2] + surface_translations[surface]
 
-                obj_body = self.plant.GetBodyByName(obj, 0)
-                obj_pose = self.plant.EvalBodyPoseInWorld(
-                    self.plant_context, obj_body)
+                try:
+                    obj_dim = obj_dims[obj]
+                    obj_pose = pose_dict["base_link_{}".format(obj)]
+                except:
+                    continue
 
-                z_diff = obj_pose.translation()[2] - shelf_pose.translation()[2]
-                if abs(z_diff) < 0.01:
+                z_diff = obj_pose.translation()[2] - shelf_z
+                if abs(z_diff) < shelf_thickness + obj_dim + 0.01:
                     self.blackboard.set("{}_on".format(obj), surface)
 
         # door_open
         for door in self.door_names:
-            door_angle = self.plant.GetJointByName(
-                "{}_hinge".format(door)).get_angle(self.plant_context)
+            yaw_angle = RollPitchYaw(pose_dict[door].rotation()).yaw_angle()
+            door_angle = (yaw_angle + 2*np.pi) % (2 * np.pi ) - np.pi
             if abs(door_angle) >= np.pi / 3:
                 self.blackboard.set("{}_open".format(door), True)
             else:
                 self.blackboard.set("{}_open".format(door), False)
 
         # robot_holding, obj
+        gripper_dim = 0.0725
+        holding = False
         for obj in self.object_names:
-            if wsg_q > 0 and wsg_F > 0:
-                obj_body = self.plant.GetBodyByName(obj, 0)
-                obj_pose = self.plant.EvalBodyPoseInWorld(
-                    self.plant_context, obj_body)
-
-                gripper_body = self.plant.GetBodyByName("gripper", 0)
-                gripper_pose = self.plant.EvalBodyPoseInWorld(
-                    self.plant_context, gripper_body)
+            if 0.005 < wsg_q.GetAtIndex(0) < 0.1 and wsg_F.GetAtIndex(0) > 3:
+                try:
+                    obj_dim = obj_dims[obj]
+                    obj_pose = pose_dict["base_link_{}".format(obj)]
+                except:
+                    continue
+                gripper_pose = pose_dict["body"]
 
                 distance = np.linalg.norm(
                     obj_pose.translation() - gripper_pose.translation())
-                if distance < 0.01:
+                if distance <= obj_dim + gripper_dim + 0.01:
+                    holding = True
                     self.blackboard.set("robot_holding", obj)
+                    break
+        if not holding:
+            self.blackboard.set("robot_holding", None)
+
+        print self.blackboard
 
 
     def Tick(self, context, output):
@@ -154,7 +188,7 @@ class BehaviorTree(LeafSystem):
         wsg_F = self.EvalAbstractInput(
             context, self.gripper_force_input_port.get_index()).get_value()
 
-        self.UpdateBlackboard(pose_bundle, iiwa_q, iiwa_v, wsg_q, wsg_F)
+        self.UpdateBlackboard(self._ParsePoses(pose_bundle), iiwa_q, iiwa_v, wsg_q, wsg_F)
 
         print("\n--------- Tick {0} ---------\n".format(self.tick_counter))
         self.root.tick_once()
@@ -165,7 +199,12 @@ class BehaviorTree(LeafSystem):
 
         self.tick_counter += 1
 
-        # output.get_mutable_value()
+        if self.root.status == Status.SUCCESS:
+            output.get_mutable_value()[0] = 0
+        elif self.root.status == Status.RUNNING:
+            output.get_mutable_value()[0] = 1
+        else:
+            output.get_mutable_value()[0] = 2
 
 
 def make_root():
@@ -217,8 +256,24 @@ if __name__ == "__main__":
     # Create the ManipulationStation.
     station = builder.AddSystem(ManipulationStation())
     station.SetupDefaultStation()
-    soup_file = ""
-    X_WSoup = None
+    soup_file = "drake/manipulation/models/ycb/sdf/005_tomato_soup_can.sdf"
+
+    # Pose from PDDL version
+    # X_WSoup = RigidTransform(
+    #     RotationMatrix(np.array([[-0.52222752, -0.0976978,  -0.84719157],
+    #                              [ 0.85173699, -0.01002188, -0.5238737 ],
+    #                              [ 0.04269086, -0.99516567,  0.08844653 ]])),
+    #     np.array([0.53777627, -0.17532787, 0.03030285]))
+
+    #[0.9057, 0., 0.28365]
+    # holding: [0.45, 0, 0.1]
+    X_WSoup = RigidTransform(
+        RotationMatrix(np.array([[-0.52222752, -0.0976978,  -0.84719157],
+                                 [ 0.85173699, -0.01002188, -0.5238737 ],
+                                 [ 0.04269086, -0.99516567,  0.08844653 ]])),
+        np.array([0.8, 0., 0.45]))
+
+
     station.AddManipulandFromFile(soup_file, X_WSoup)
     station.Finalize()
 
@@ -229,20 +284,19 @@ if __name__ == "__main__":
                     meshcat.get_input_port(0))
 
     object_names = ["soup"]
-    door_names = ["left_door"]
+    door_names = ["left_door", "right_door"]
     surface_names = ["shelf_lower"]
 
     # Create the BehaviorTree
     plant = station.get_multibody_plant()
-    bt = BehaviorTree(root,
+    bt = builder.AddSystem(BehaviorTree(root,
                       object_names,
                       door_names,
                       surface_names,
-                      plant,
-                      plant.get_mutable_context())
+                      plant))
 
     builder.Connect(station.GetOutputPort("pose_bundle"),
-                    bt.GetInputPort("pose_bundle"))
+                    bt.GetInputPort("pose_bundle_W"))
     builder.Connect(station.GetOutputPort("iiwa_position_measured"),
                     bt.GetInputPort("iiwa_position"))
     builder.Connect(station.GetOutputPort("iiwa_velocity_estimated"),
@@ -269,10 +323,23 @@ if __name__ == "__main__":
     station_context.FixInputPort(station.GetInputPort(
         "iiwa_feedforward_torque").get_index(), np.zeros(7))
     station_context.FixInputPort(station.GetInputPort(
-        "wsg_position").get_index(), np.array([0.1]))
+        "wsg_position").get_index(), np.array([0.045])) #0.045
     station_context.FixInputPort(station.GetInputPort(
         "wsg_force_limit").get_index(), np.array([40.0]))
+
+
+    left_hinge_joint = station.get_multibody_plant().GetJointByName("left_door_hinge")
+    left_hinge_joint.set_angle(
+        context=station.GetMutableSubsystemContext(station.get_multibody_plant(), station_context), angle=-np.pi/3)
+    #
+    # pose_bundle = station.GetOutputPort("pose_bundle").Eval(station_context)
+    # for i in range(pose_bundle.get_num_poses()):
+    #     print pose_bundle.get_name(i)
+    #     print pose_bundle.get_pose(i)
 
     simulator.set_publish_every_time_step(False)
     simulator.set_target_realtime_rate(1.0)
     simulator.StepTo(0.1)
+
+    bt_context = diagram.GetMutableSubsystemContext(bt, simulator.get_mutable_context())
+    print bt.GetOutputPort("status").Eval(bt_context)
