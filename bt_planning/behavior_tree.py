@@ -78,7 +78,9 @@ class BehaviorTree(LeafSystem):
         # TODO(kmuhlrad): add output ports
 
         self.status_output_port = self.DeclareVectorOutputPort(
-            "status", BasicVector(1), self.Tick)
+            "status", BasicVector(1), self.DoCalcRootStatus)
+
+        self.DeclarePeriodicPublish(1.0, 0.0)
 
     def _ParsePoses(self, pose_bundle):
         pose_dict = {}
@@ -96,9 +98,10 @@ class BehaviorTree(LeafSystem):
         and don't need to know about ports at all. This method should always
         be called before ticking the tree.
 
+        @param pose_dict: A dictionary of 4x4 poses keyed by body name.
         @param iiwa_q: The current iiwa joint angles.
         @param iiwa_v: The current iiwa joint velocities.
-        @param wsg_q: The current gripper setpoint.
+        @param wsg_q: The current gripper [position, velocity] vector.
         @param wsg_F: The current gripper force.
         """
 
@@ -175,7 +178,10 @@ class BehaviorTree(LeafSystem):
         print self.blackboard
 
 
-    def Tick(self, context, output):
+    def DoPublish(self, context, events):
+        self.TickOnce(context)
+
+    def TickOnce(self, context):
         # Evaluate ports
         pose_bundle = self.EvalAbstractInput(
             context, self.pose_bundle_input_port.get_index()).get_value()
@@ -195,10 +201,10 @@ class BehaviorTree(LeafSystem):
         print("\n")
         print("{}".format(py_trees.display.print_ascii_tree(self.root, show_status=True)))
         print(self.blackboard)
-        time.sleep(1.0)
 
         self.tick_counter += 1
 
+    def DoCalcRootStatus(self, context, output):
         if self.root.status == Status.SUCCESS:
             output.get_mutable_value()[0] = 0
         elif self.root.status == Status.RUNNING:
@@ -210,14 +216,14 @@ class BehaviorTree(LeafSystem):
 def make_root():
     # conditions
     holding_soup = Holding("soup")
-    soup_on_shelf = On("soup", "bottom_shelf")
+    soup_on_shelf = On("soup", "shelf_lower")
     left_door_open = DoorOpen("left_door")
     moving_inverter = inverter(RobotMoving)("MovingInverter")
     gripper_empty = inverter(Holding)("soup", "GripperEmpty")
 
     # actions
     pick_soup = PickDrake("soup")
-    place_soup = PlaceDrake("soup", "bottom_shelf")
+    place_soup = PlaceDrake("soup", "shelf_lower")
     open_left_door = OpenDoorDrake("left_door")
 
     root = Selector(name="Root")
@@ -265,13 +271,13 @@ if __name__ == "__main__":
     #                              [ 0.04269086, -0.99516567,  0.08844653 ]])),
     #     np.array([0.53777627, -0.17532787, 0.03030285]))
 
-    #[0.9057, 0., 0.28365]
+    # on shelf_lower: [0.8, 0., 0.45]
     # holding: [0.45, 0, 0.1]
     X_WSoup = RigidTransform(
         RotationMatrix(np.array([[-0.52222752, -0.0976978,  -0.84719157],
                                  [ 0.85173699, -0.01002188, -0.5238737 ],
                                  [ 0.04269086, -0.99516567,  0.08844653 ]])),
-        np.array([0.8, 0., 0.45]))
+        np.array([0.45, 0, 0.1]))
 
 
     station.AddManipulandFromFile(soup_file, X_WSoup)
@@ -339,7 +345,7 @@ if __name__ == "__main__":
 
     simulator.set_publish_every_time_step(False)
     simulator.set_target_realtime_rate(1.0)
-    simulator.StepTo(0.1)
+    simulator.StepTo(10.0)
 
     bt_context = diagram.GetMutableSubsystemContext(bt, simulator.get_mutable_context())
     print bt.GetOutputPort("status").Eval(bt_context)
