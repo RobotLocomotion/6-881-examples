@@ -6,11 +6,15 @@ from plan_runner.manipulation_station_plan_runner import *
 
 # Define global variables used for IK.
 plant = station.get_mutable_multibody_plant()
-tree = plant.tree()
+# tree = plant.tree()
 
 iiwa_model = plant.GetModelInstanceByName("iiwa")
+gripper_model = plant.GetModelInstanceByName("gripper")
+
 world_frame = plant.world_frame()
-l7_frame = plant.GetFrameByName("iiwa_link_7", iiwa_model)
+gripper_frame = plant.GetFrameByName("body", gripper_model)
+
+R_EEa = RotationMatrix(X_EEa.rotation())
 
 
 def GetKukaQKnots(q_knots):
@@ -27,7 +31,7 @@ def GetKukaQKnots(q_knots):
     n = q_knots.shape[0]
     q_knots_kuka = np.zeros((n, 7))
     for i, q_knot in enumerate(q_knots):
-        q_knots_kuka[i] = tree.GetPositionsFromArray(iiwa_model, q_knot)
+        q_knots_kuka[i] = plant.GetPositionsFromArray(iiwa_model, q_knot)
 
     return q_knots_kuka
 
@@ -70,16 +74,16 @@ def InverseKinPointwise(p_WQ_start, p_WQ_end, duration,
         q_variables = ik.q()
 
         # Orientation constraint
-        R_WL7_ref = InterpolateOrientation(i, num_knot_points)
+        R_WEa_ref = InterpolateOrientation(i, num_knot_points)
         ik.AddOrientationConstraint(
-            frameAbar=world_frame, R_AbarA=R_WL7_ref,
-            frameBbar=l7_frame, R_BbarB=RotationMatrix.Identity(),
+            frameAbar=world_frame, R_AbarA=R_WEa_ref,
+            frameBbar=gripper_frame, R_BbarB=R_EEa,
             theta_bound=theta_bound)
 
         # Position constraint
         p_WQ = InterpolatePosition(p_WQ_start, p_WQ_end, num_knot_points, i)
         ik.AddPositionConstraint(
-            frameB=l7_frame, p_BQ=p_L7Q,
+            frameB=gripper_frame, p_BQ=p_EQ,
             frameA=world_frame,
             p_AQ_lower=p_WQ - position_tolerance,
             p_AQ_upper=p_WQ + position_tolerance)
@@ -114,15 +118,15 @@ def GetHomeConfiguration(is_printing=True):
     R_EEa = RotationMatrix(X_EEa.rotation())
 
     ik_scene.AddOrientationConstraint(
-        frameAbar=world_frame, R_AbarA=R_WL7_ref,
-        frameBbar=l7_frame, R_BbarB=RotationMatrix.Identity(),
+        frameAbar=world_frame, R_AbarA=R_WEa_ref,
+        frameBbar=gripper_frame, R_BbarB=R_EEa,
         theta_bound=theta_bound)
 
     p_WQ0 = p_WQ_home
     p_WQ_lower = p_WQ0 - 0.005
     p_WQ_upper = p_WQ0 + 0.005
     ik_scene.AddPositionConstraint(
-        frameB=l7_frame, p_BQ=p_L7Q,
+        frameB=gripper_frame, p_BQ=p_EQ,
         frameA=world_frame,
         p_AQ_lower=p_WQ_lower, p_AQ_upper=p_WQ_upper)
 
@@ -134,13 +138,13 @@ def GetHomeConfiguration(is_printing=True):
     return prog.GetSolution(ik_scene.q())
 
 
-def GenerateApproachHandlePlans(InterpolateOrientation, p_WQ_end, is_printing=True):
+def GenerateApproachHandlePlans(InterpolateOrientation, is_printing=True):
     """
     Returns a list of Plans that move the end effector from its home position to
     the left door handle. Also returns the corresponding gripper setpoints and IK solutions.
 
     @param InterpolateOrientation: a function passed to InverseKinPointwise, which returns the desired
-        end effector orienttion along the trajectory. 
+        end effector orienttion along the trajectory.
     """
     q_home_full = GetHomeConfiguration(is_printing)
 
@@ -152,6 +156,7 @@ def GenerateApproachHandlePlans(InterpolateOrientation, p_WQ_end, is_printing=Tr
 
     # move to grasp left door handle
     p_WQ_start = p_WQ_home
+    p_WQ_end = p_WC_handle
     qtraj_move_to_handle, q_knots_full = InverseKinPointwise(
         p_WQ_start, p_WQ_end, duration=5.0,
         num_knot_points=num_knot_points, q_initial_guess=q_home_full,
@@ -236,9 +241,10 @@ def AddOpenDoorFullyPlans(plan_list, gripper_setpoint_list):
         xyz_traj = ConnectPointsWithCubicPolynomial(
             np.zeros(3), delta_xyz[i], xyz_durations[i])
         plan_list.append(IiwaTaskSpacePlan(
-            xyz_traj=xyz_traj,
-            Q_WL7_ref=R_WL7_ref.ToQuaternion(),
-            p_L7Q=p_L7Q))
+            duration=xyz_durations[i],
+            trajectory=xyz_traj,
+            R_WEa_ref=R_WEa_ref,
+            p_EQ=p_EQ))
         gripper_setpoint_list.append(xyz_gripper_setpoint[i])
 
     # plan from current position to pre-swing
@@ -281,9 +287,7 @@ def GenerateOpenLeftDoorPlansByTrajectory(is_printing=True):
         return RollPitchYaw(0, pitch_angle, 0).ToRotationMatrix()
 
     plan_list, gripper_setpoint_list, q_final_full = \
-        GenerateApproachHandlePlans(InterpolatePitchAngle,
-                                    p_WQ_end=p_WC_handle,
-                                    is_printing=is_printing)
+        GenerateApproachHandlePlans(InterpolatePitchAngle, is_printing=is_printing)
 
     plan_list.append(JointSpacePlan(
         GenerateOpenLeftDoorTrajectory(
@@ -306,66 +310,27 @@ def GenerateOpenLeftDoorPlansByImpedanceOrPosition(
     If is_open_fully is True, the robot executes a hand-crafted maneuver to push the door fully open.
     """
     def ReturnConstantOrientation(i, num_knot_points):
-        return R_WL7_ref
+        return R_WEa_ref
 
     # Move end effector towards the left door handle.
     plan_list, gripper_setpoint_list, q_final_full = \
-        GenerateApproachHandlePlans(ReturnConstantOrientation,
-                                    p_WQ_end=p_WC_handle,
-                                    is_printing=is_printing)
+        GenerateApproachHandlePlans(ReturnConstantOrientation, is_printing=is_printing)
 
     if open_door_method == "Impedance":
         # Add the position/impedance plan that opens the left door.
         plan_list.append(OpenLeftDoorImpedancePlan(
             angle_start=theta0_hinge,
             angle_end=handle_angle_end,
-            duration=open_door_duration,
-            Q_WL7_ref=R_WL7_ref.ToQuaternion()))
+            duration=open_door_duration))
     elif open_door_method == "Position":
         plan_list.append(OpenLeftDoorPositionPlan(
             angle_start=theta0_hinge,
             angle_end=handle_angle_end,
-            duration=open_door_duration,
-            Q_WL7_ref=R_WL7_ref.ToQuaternion()))
+            duration=open_door_duration))
     gripper_setpoint_list.append(gripper_setpoint_list[-1])
 
     if is_open_fully:
         AddOpenDoorFullyPlans(plan_list, gripper_setpoint_list)
-
-    return plan_list, gripper_setpoint_list
-
-def GenerateExampleJointAndTaskSpacePlans():
-    """
-    Creates iiwa plans and gripper set points that
-    - start at a home configuration
-    - approach a point 10 cm behind the door handle (JointSpacePlan)
-    - move the end effector along a few starght line segments (IiwaTaskSpacePlan)
-    """
-    def ReturnConstantOrientation(i, num_knot_points):
-        return R_WL7_ref
-
-    # Move end effector towards the left door handle.
-    plan_list, gripper_setpoint_list, q_final_full = \
-        GenerateApproachHandlePlans(ReturnConstantOrientation,
-                                    p_WQ_end=p_WC_handle - np.array([0.11, 0, 0]),
-                                    is_printing=True)
-
-    # Add task space plans
-    xyz_durations = [6., 6., 6.]
-    xyz_gripper_setpoint = [0.01, 0.01, 0.01, ]
-    delta_xyz = np.zeros((3, 3))
-    delta_xyz[0] = [-0.03, 0, 0]
-    delta_xyz[1] = [0, -0.15, 0]
-    delta_xyz[2] = [0.13, 0, 0]
-
-    for i in range(3):
-        xyz_traj = ConnectPointsWithCubicPolynomial(
-            np.zeros(3), delta_xyz[i], xyz_durations[i])
-        plan_list.append(IiwaTaskSpacePlan(
-            xyz_traj=xyz_traj,
-            Q_WL7_ref=R_WL7_ref.ToQuaternion(),
-            p_L7Q=p_L7Q))
-        gripper_setpoint_list.append(xyz_gripper_setpoint[i])
 
     return plan_list, gripper_setpoint_list
 

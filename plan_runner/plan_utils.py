@@ -1,8 +1,9 @@
-import numpy as np
-import matplotlib.pyplot as plt
-from pydrake.common.eigen_geometry import Isometry3, Quaternion
 from pydrake.trajectories import PiecewisePolynomial
+import numpy as np
+from pydrake.common.eigen_geometry import Isometry3
 from pydrake.examples.manipulation_station import ManipulationStation
+import matplotlib.pyplot as plt
+
 
 # Create a cubic polynomial that connects x_start and x_end.
 # x_start and x_end should be list or np arrays.
@@ -24,6 +25,7 @@ Create an instance of ManipulationStation for kinematic and dynamic calculations
 station = ManipulationStation()
 station.SetupDefaultStation()
 station.Finalize()
+
 
 '''
 Ea, or End_Effector_world_aligned is a frame fixed w.r.t the gripper.
@@ -48,10 +50,10 @@ get relative transforms between EE frame (wsg gripper) and iiwa_link_7
 '''
 def GetL7EeTransform():
     plant = station.get_mutable_multibody_plant()
-    tree = plant.tree()
+    # tree = plant.tree()
 
     context_plant = plant.CreateDefaultContext()
-    X_L7E = tree.CalcRelativeTransform(
+    X_L7E = plant.CalcRelativeTransform(
         context_plant,
         frame_A=plant.GetFrameByName("iiwa_link_7"),
         frame_B=plant.GetFrameByName("body"))
@@ -66,9 +68,9 @@ def PlotExternalTorqueLog(iiwa_external_torque_log):
     t = iiwa_external_torque_log.sample_times()
     for i, torque in enumerate(iiwa_external_torque_log.data()):
         ax = fig_external_torque.add_subplot(711 + i)
-        ax.plot(t, torque, label='joint_%d' % (i + 1))
+        ax.plot(t, torque, label='torque_external@joint_%d' % (i + 1))
         ax.set_xlabel("t(s)")
-        ax.set_ylabel("Nm")
+        ax.set_ylabel("N/m")
         ax.legend()
         ax.grid(True)
 
@@ -95,7 +97,7 @@ def PlotIiwaPositionLog(iiwa_position_command_log, iiwa_position_measured_log):
     plt.tight_layout()
     plt.show()
 
-def GetPlanStartingTimes(kuka_plans, duration_multiplier):
+def GetPlanStartingTimes(kuka_plans):
     """
     :param kuka_plans: a list of Plans.
     :return: t_plan is a list of length (len(kuka_plans) + 1). t_plan[i] is the starting time of kuka_plans[i];
@@ -106,7 +108,8 @@ def GetPlanStartingTimes(kuka_plans, duration_multiplier):
     for i in range(0, num_plans):
         t_plan[i + 1] = \
             t_plan[i] + kuka_plans[i].get_duration()
-    return t_plan * duration_multiplier
+    print "Plan starting times(s)\n", t_plan
+    return t_plan
 
 def RenderSystemWithGraphviz(system, output_file="system_view.gz"):
     """ Renders the Drake system (presumably a diagram,
@@ -116,40 +119,3 @@ def RenderSystemWithGraphviz(system, output_file="system_view.gz"):
     string = system.GetGraphvizString()
     src = Source(string)
     src.render(output_file, view=False)
-
-def PlotEeOrientationError(iiwa_position_measured_log, Q_WL7_ref, t_plan):
-    """ Plots the absolute value of rotation angle between frame L7 and its reference.
-    Q_WL7_ref is a quaternion of frame L7's reference orientation relative to world frame.
-    t_plan is the starting time of every plan. They are plotted as vertical dashed black lines.  
-    """
-    plant_iiwa = station.get_controller_plant()
-    tree_iiwa = plant_iiwa.tree()
-    context_iiwa = plant_iiwa.CreateDefaultContext()
-    l7_frame = plant_iiwa.GetFrameByName('iiwa_link_7')
-
-    t_sample = iiwa_position_measured_log.sample_times()
-    n = len(t_sample)
-    angle_error_abs = np.zeros(n - 1)
-    for i in range(1, n):
-        q_iiwa = iiwa_position_measured_log.data()[:, i]
-        x_iiwa_mutable = \
-            tree_iiwa.GetMutablePositionsAndVelocities(context_iiwa)
-        x_iiwa_mutable[:7] = q_iiwa
-
-        X_WL7 = tree_iiwa.CalcRelativeTransform(
-            context_iiwa, frame_A=plant_iiwa.world_frame(), frame_B=l7_frame)
-
-        Q_L7L7ref = X_WL7.quaternion().inverse().multiply(Q_WL7_ref)
-        angle_error_abs[i-1] = np.arccos(Q_L7L7ref.w()) * 2
-
-    fig = plt.figure(dpi=150)
-    ax = fig.add_subplot(111)
-    ax.axhline(0, linestyle='--', color='r')
-    for t in t_plan:
-        ax.axvline(t, linestyle='--', color='k')
-    ax.plot(t_sample[1:], angle_error_abs/np.pi*180)
-    ax.set_xlabel("t(s)")
-    ax.set_ylabel("abs angle error, degrees")
-
-    plt.tight_layout()
-    plt.show()

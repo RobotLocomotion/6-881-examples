@@ -99,7 +99,6 @@ class IiwaController(LeafSystem):
         # create a multibodyplant containing the robot only, which is used for
         # jacobian calculations.
         self.plant_iiwa = station.get_controller_plant()
-        self.tree_iiwa = self.plant_iiwa.tree()
         self.context_iiwa = self.plant_iiwa.CreateDefaultContext()
         self.l7_frame = self.plant_iiwa.GetFrameByName('iiwa_link_7')
 

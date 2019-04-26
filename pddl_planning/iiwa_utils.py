@@ -12,13 +12,13 @@ WSG50_RIGHT_FINGER = 'right_finger_sliding_joint'
 def get_close_wsg50_positions(mbp, model_index):
     left_joint = mbp.GetJointByName(WSG50_LEFT_FINGER, model_index)
     right_joint = mbp.GetJointByName(WSG50_RIGHT_FINGER, model_index)
-    return [left_joint.upper_limits()[0], right_joint.lower_limits()[0]]
+    return [left_joint.position_upper_limits()[0], right_joint.position_lower_limits()[0]]
 
 
 def get_open_wsg50_positions(mbp, model_index):
     left_joint = mbp.GetJointByName(WSG50_LEFT_FINGER, model_index)
     right_joint = mbp.GetJointByName(WSG50_RIGHT_FINGER, model_index)
-    return [left_joint.lower_limits()[0], right_joint.upper_limits()[0]]
+    return [left_joint.position_lower_limits()[0], right_joint.position_upper_limits()[0]]
 
 
 def close_wsg50_gripper(mbp, context, model_index): # 0.05
@@ -74,7 +74,7 @@ def get_cylinder_grasps(aabb, max_width=DEFAULT_MAX_WIDTH, grasp_length=0.02,
         pitch = random.uniform(*pitch_range)
         rotate_x = create_transform(rotation=[pitch, 0, 0])
         translate_z = create_transform(translation=[0, 0, - TOOL_Z + grasp_length])
-        yield reflect_z.multiply(translate_z).multiply(rotate_x).multiply(rotate_z).\
+        yield reflect_z.multiply(translate_z).multiply(rotate_x).multiply(rotate_z). \
             multiply(translate_axis).multiply(aabb_from_body)
 
 

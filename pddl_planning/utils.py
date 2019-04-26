@@ -13,10 +13,10 @@ from pydrake.geometry import DispatchLoadMessage
 from pydrake.lcm import DrakeMockLcm
 from pydrake.math import RollPitchYaw
 from pydrake.multibody.inverse_kinematics import InverseKinematics
-from pydrake.multibody.multibody_tree import (ModelInstanceIndex, WeldJoint, RevoluteJoint, PrismaticJoint, BodyIndex,
-                                              JointIndex, JointActuatorIndex, FrameIndex)
+from pydrake.multibody.tree import (ModelInstanceIndex, WeldJoint, RevoluteJoint, PrismaticJoint, BodyIndex,
+                                    JointIndex, JointActuatorIndex, FrameIndex)
 from pydrake.solvers.mathematicalprogram import SolutionResult
-from pydrake.util.eigen_geometry import Isometry3
+from pydrake.common.eigen_geometry import Isometry3
 
 user_input = raw_input
 
@@ -117,7 +117,7 @@ def create_transform(translation=None, rotation=None):
 
 
 def get_model_name(mbp, model_index):
-    return str(mbp.tree().GetModelInstanceName(model_index))
+    return str(mbp.GetModelInstanceName(model_index))
 
 
 def get_model_indices(mbp):
@@ -129,19 +129,19 @@ def get_model_names(mbp):
 
 
 def get_bodies(mbp):
-    return [mbp.tree().get_body(BodyIndex(i)) for i in range(mbp.num_bodies())]
+    return [mbp.get_body(BodyIndex(i)) for i in range(mbp.num_bodies())]
 
 
 def get_joints(mbp):
-    return [mbp.tree().get_joint(JointIndex(i)) for i in range(mbp.num_joints())]
+    return [mbp.get_joint(JointIndex(i)) for i in range(mbp.num_joints())]
 
 
 def get_joint_actuators(mbp):
-    return [mbp.tree().get_joint_actuator(JointActuatorIndex(i)) for i in range(mbp.num_actuators())]
+    return [mbp.get_joint_actuator(JointActuatorIndex(i)) for i in range(mbp.num_actuators())]
 
 
 def get_frames(mbp):
-    return [mbp.tree().get_frame(FrameIndex(i)) for i in range(mbp.tree().num_frames())]
+    return [mbp.get_frame(FrameIndex(i)) for i in range(mbp.num_frames())]
 
 
 def get_model_bodies(mbp, model_index):
@@ -186,8 +186,8 @@ PAD_LIMITS = 0.0 # Radians
 
 def get_joint_limits(joint):
     assert joint.num_positions() == 1
-    [lower] = joint.lower_limits()
-    [upper] = joint.upper_limits()
+    [lower] = joint.position_lower_limits()
+    [upper] = joint.position_upper_limits()
     padded_lower = lower + PAD_LIMITS
     padded_upper = upper - PAD_LIMITS
     return padded_lower, padded_upper
@@ -246,7 +246,7 @@ def get_random_positions(joints):
 def get_relative_transform(mbp, context, frame2, frame1=None): # frame1 -> frame2
     if frame1 is None:
         frame1 = mbp.world_frame()
-    return mbp.tree().CalcRelativeTransform(context, frame1, frame2)
+    return mbp.CalcRelativeTransform(context, frame1, frame2)
 
 
 def get_body_pose(context, body):
@@ -256,23 +256,23 @@ def get_body_pose(context, body):
 
 def get_world_pose(mbp, context, model_index):
     body = get_base_body(mbp, model_index)
-    return mbp.tree().EvalBodyPoseInWorld(context, body)
+    return mbp.EvalBodyPoseInWorld(context, body)
 
 
 def set_world_pose(mbp, context, model_index, world_pose):
     body = get_base_body(mbp, model_index)
-    mbp.tree().SetFreeBodyPoseOrThrow(body, world_pose, context)
+    mbp.SetFreeBodyPose(context, body, world_pose)
 
 
 ##################################################
 
 
 def get_state(mbp, context):
-    return mbp.tree().GetMutablePositionsAndVelocities(context).copy()
+    return mbp.GetMutablePositionsAndVelocities(context).copy()
 
 
 def set_state(mbp, context, state):
-    mbp.tree().GetMutablePositionsAndVelocities(context)[:] = state
+    mbp.GetMutablePositionsAndVelocities(context)[:] = state
 
 
 def get_positions(mbp, context):
@@ -290,14 +290,14 @@ def dump_plant(mbp):
     print('\nJoints:')
     for i, joint in enumerate(get_joints(mbp)):
         print("{}) {} {}: {}, {}".format(i, body.__class__.__name__, joint.name(),
-            joint.lower_limits(), joint.upper_limits()))
+                                         joint.lower_limits(), joint.upper_limits()))
     print('\nFrames:')
     for i, frame in enumerate(get_frames(mbp)):
         print("{}) {}: {}".format(i, frame.name(), frame.body().name()))
 
 
 def dump_model(mbp, model_index):
-    print('\nModel {}: {}'.format(int(model_index), mbp.tree().GetModelInstanceName(model_index)))
+    print('\nModel {}: {}'.format(int(model_index), mbp.GetModelInstanceName(model_index)))
     bodies = get_model_bodies(mbp, model_index)
     if bodies:
         print('Bodies:')
@@ -308,7 +308,7 @@ def dump_model(mbp, model_index):
         print('Joints:')
         for i, joint in enumerate(joints):
             print("{}) {} {}: {}, {}".format(i, joint.__class__.__name__, joint.name(),
-                joint.lower_limits(), joint.upper_limits()))
+                                             joint.lower_limits(), joint.upper_limits()))
 
 
 def dump_models(mbp):
@@ -326,7 +326,7 @@ def weld_to_world(mbp, model_index, world_pose):
 ##################################################
 
 def solve_inverse_kinematics(mbp, target_frame, target_pose,
-        max_position_error=0.005, theta_bound=0.01*np.pi, initial_guess=None):
+                             max_position_error=0.005, theta_bound=0.01*np.pi, initial_guess=None):
     if initial_guess is None:
         initial_guess = np.zeros(mbp.num_positions())
         for joint in prune_fixed_joints(get_joints(mbp)):
@@ -368,7 +368,7 @@ def get_colliding_bodies(diagram, diagram_context, plant, scene_graph, min_penet
     for penetration in query_object.ComputePointPairPenetration():
         if min_penetration <= penetration.depth:
             body1, body2 = [plant.GetBodyFromFrameId(inspector.GetFrameId(geometry_id))
-                  for geometry_id in [penetration.id_A, penetration.id_B]]
+                            for geometry_id in [penetration.id_A, penetration.id_B]]
             colliding_bodies.update([(body1, body2), (body2, body1)])
     return colliding_bodies
 
@@ -402,7 +402,7 @@ def get_box_from_geom(scene_graph, visual_only=True):
     for body_index in range(load_robot_msg.num_links):
         # 'geom', 'name', 'num_geom', 'robot_num'
         link = load_robot_msg.link[body_index]
-        [source_name, frame_name] = link.name.split("::")
+        frame_name = link.name.split("::")[-1]
         model_index = link.robot_num
 
         visual_index = 0
@@ -425,10 +425,23 @@ def get_box_from_geom(scene_graph, visual_only=True):
                 [radius, height] = geom.float_data
                 extent = np.array([radius, radius, height/2.])
                 # In Drake, cylinders are along +z
+            elif "soup" in frame_name:
+                # TODO(kmuhlrad): stop hardcoding like this
+                extent = np.array([0.032, 0.05, 0.032])
             else:
                 continue
             link_from_box = RigidTransform(
                 RotationMatrix(Quaternion(geom.quaternion)), geom.position).GetAsIsometry3()
+            if "soup" in frame_name:
+                # multiply by dope transform
+                dope_transform = Isometry3(np.array([
+                    [ 99.144500732421875, 0, -13.052599906921387, 0 ],
+                    [ 13.052599906921387, 0, 99.144500732421875, 0 ],
+                    [ 0, -100, 0, 0 ],
+                    [ -0.1793999969959259, 5.1006999015808105, -8.4443998336791992, 100 ]
+                ]).T / 100.)
+                link_from_box = dope_transform.multiply(link_from_box.inverse())
+                print("LINK FROM BOX", link_from_box)
             box_from_geom[model_index, frame_name, visual_index-1] = \
                 (BoundingBox(np.zeros(3), extent), link_from_box, get_geom_name(geom))
     return box_from_geom

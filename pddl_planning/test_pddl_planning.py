@@ -26,8 +26,7 @@ class TestPDDLPlanning(unittest.TestCase):
         context = diagram.GetMutableSubsystemContext(plant, task.diagram_context)
 
         world_frame = plant.world_frame()
-        tree = plant.tree()
-        X_WSoup = tree.CalcRelativeTransform(
+        X_WSoup = plant.CalcRelativeTransform(
             context, frame_A=world_frame, frame_B=plant.GetFrameByName("base_link_soup"))
 
         self.manip_station_sim = ManipulationStationSimulator(

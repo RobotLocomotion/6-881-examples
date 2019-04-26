@@ -6,7 +6,7 @@ def connect_plan_runner(builder, station, plan):
     plan_list, gripper_setpoints = plan
 
     # Add plan runner.
-    plan_runner = ManipStationPlanRunner(plan_list, gripper_setpoints)
+    plan_runner = ManipStationPlanRunner(station, plan_list, gripper_setpoints)
 
     builder.AddSystem(plan_runner)
     builder.Connect(plan_runner.hand_setpoint_output_port,
@@ -15,18 +15,20 @@ def connect_plan_runner(builder, station, plan):
                     station.GetInputPort("wsg_force_limit"))
 
     demux = builder.AddSystem(Demultiplexer(14, 7))
-    builder.Connect(plan_runner.GetOutputPort("gripper_setpoint"),
-                    station.GetInputPort("wsg_position"))
-    builder.Connect(plan_runner.GetOutputPort("force_limit"),
-                    station.GetInputPort("wsg_force_limit"))
-    builder.Connect(plan_runner.GetOutputPort("iiwa_position_command"),
+    builder.Connect(
+        plan_runner.GetOutputPort("iiwa_position_and_torque_command"),
+        demux.get_input_port(0))
+    builder.Connect(demux.get_output_port(0),
                     station.GetInputPort("iiwa_position"))
-    builder.Connect(plan_runner.GetOutputPort("iiwa_torque_command"),
+    builder.Connect(demux.get_output_port(1),
                     station.GetInputPort("iiwa_feedforward_torque"))
+    builder.Connect(station.GetOutputPort("iiwa_position_measured"),
+                    plan_runner.iiwa_position_input_port)
+    builder.Connect(station.GetOutputPort("iiwa_velocity_estimated"),
+                    plan_runner.iiwa_velocity_input_port)
 
     # Add logger
-    iiwa_position_command_log = LogOutput(
-        plan_runner.GetOutputPort("iiwa_position_command"), builder)
+    iiwa_position_command_log = LogOutput(demux.get_output_port(0), builder)
     iiwa_position_command_log._DeclarePeriodicPublish(0.005)
 
     iiwa_external_torque_log = LogOutput(
@@ -48,7 +50,7 @@ def connect_plan_runner(builder, station, plan):
     return plan_runner
 
 def build_manipulation_station(station, plan=None, visualize=False):
-    from underactuated.meshcat_visualizer import MeshcatVisualizer
+    from pydrake.systems.meshcat_visualizer import MeshcatVisualizer
 
     builder = DiagramBuilder()
     builder.AddSystem(station)
@@ -58,17 +60,15 @@ def build_manipulation_station(station, plan=None, visualize=False):
         plan_runner = connect_plan_runner(builder, station, plan)
 
     # Add meshcat visualizer
-    plant = station.get_mutable_multibody_plant()
+    # plant = station.get_mutable_multibody_plant()
     scene_graph = station.get_mutable_scene_graph()
     if visualize:
-        viz = MeshcatVisualizer(scene_graph,
-                                is_drawing_contact_force = True,
-                                plant = plant)
+        viz = MeshcatVisualizer(scene_graph)
         builder.AddSystem(viz)
         builder.Connect(station.GetOutputPort("pose_bundle"),
                         viz.GetInputPort("lcm_visualization"))
-        builder.Connect(station.GetOutputPort("contact_results"),
-                        viz.GetInputPort("contact_results"))
+        # builder.Connect(station.GetOutputPort("contact_results"),
+        #                 viz.GetInputPort("contact_results"))
 
     # build diagram
     diagram = builder.Build()

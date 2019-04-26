@@ -25,6 +25,9 @@ from pddlstream.utils import print_solution, read, INF, get_file_path
 from plan_runner.manipulation_station_simulator import ManipulationStationSimulator
 from plan_runner.open_left_door import GenerateOpenLeftDoorPlansByImpedanceOrPosition
 
+from pydrake.math import RigidTransform
+from pydrake.common.eigen_geometry import Isometry3
+
 def get_pddlstream_problem(task, context, collisions=True, use_impedance=False):
     domain_pddl = read(get_file_path(__file__, 'domain.pddl'))
     stream_pddl = read(get_file_path(__file__, 'stream.pddl'))
@@ -51,6 +54,7 @@ def get_pddlstream_problem(task, context, collisions=True, use_impedance=False):
     for obj in task.movable:
         obj_name = get_model_name(plant, obj)
         obj_pose = Pose(plant, world, obj, get_world_pose(plant, context, obj))
+        print("OBJECT POSE", get_world_pose(plant, context, obj))
         init += [('Graspable', obj_name),
                  ('Pose', obj_name, obj_pose),
                  ('InitPose', obj_name, obj_pose),
@@ -66,7 +70,7 @@ def get_pddlstream_problem(task, context, collisions=True, use_impedance=False):
             init += [('Stove', surface)]
 
     for door in task.doors:
-        door_body = plant.tree().get_body(door)
+        door_body = plant.get_body(door)
         door_name = door_body.name()
         door_joints = get_parent_joints(plant, door_body)
         door_conf = Conf(door_joints, get_joint_positions(door_joints, context))
@@ -170,8 +174,8 @@ def replan(task, context, visualize=True, collisions=True, use_impedance=False):
     set_state(task.plant, context, initial_state)
     if visualize:
         step_trajectories(task.diagram, task.diagram_context, context, trajectories,
-                         # time_step=None, teleport=True)
-                         time_step=0.001)
+                          time_step=None, teleport=True)
+        # time_step=0.001)
     splines, gripper_setpoints = convert_controls(
         task.plant, task.robot, task.gripper, context, trajectories)
     np.save("splines", splines, allow_pickle=True)
@@ -219,10 +223,9 @@ def main():
     context = diagram.GetMutableSubsystemContext(plant, task.diagram_context)
 
     world_frame = plant.world_frame()
-    tree = plant.tree()
-    X_WSoup = tree.CalcRelativeTransform(
+    X_WSoup = plant.CalcRelativeTransform(
         context, frame_A=world_frame, frame_B=plant.GetFrameByName("base_link_soup"))
-
+    print("SOUP_POSE", X_WSoup.matrix())
     if not args.load:
         replan(task, context, visualize=True, collisions=not args.cfree, use_impedance=args.force_control)
 
@@ -257,7 +260,7 @@ def main():
 
     if args.execute:
         raw_input('Execute on hardware?')
-        iiwa_position_command_log, iiwa_position_measured_log, iiwa_external_torque_log, t_plan = \
+        iiwa_position_command_log, iiwa_position_measured_log, iiwa_external_torque_log = \
             manip_station_sim.RunRealRobot(plan_list, gripper_setpoints)
         #PlotExternalTorqueLog(iiwa_external_torque_log)
         #PlotIiwaPositionLog(iiwa_position_command_log, iiwa_position_measured_log)
@@ -265,7 +268,7 @@ def main():
         raw_input('Execute in simulation?')
         q0 = [0, 0, 0, -1.75, 0, 1.0, 0]
         iiwa_position_command_log, iiwa_position_measured_log, iiwa_external_torque_log, \
-            plant_state_log, t_plan = \
+        plant_state_log = \
             manip_station_sim.RunSimulation(plan_list, gripper_setpoints,
                                             extra_time=2.0, real_time_rate=1.0, q0_kuka=q0)
         #PlotExternalTorqueLog(iiwa_external_torque_log)
