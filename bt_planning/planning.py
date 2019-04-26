@@ -1,7 +1,11 @@
 from pydrake.multibody import inverse_kinematics
-from pydrake.math import RotationMatrix
+from pydrake.math import RotationMatrix, RigidTransform, RollPitchYaw
+from pydrake.examples.manipulation_station import ManipulationStation
+from pydrake.trajectories import PiecewisePolynomial
 
-from plan_runner.manipulation_station_plan_runner import *
+import numpy as np
+
+from plan_runner import *
 
 # TODO(kmuhlrad): move these all into a class/function
 
@@ -18,11 +22,52 @@ world_frame = plant.world_frame()
 gripper_frame = plant.GetFrameByName("body", gripper_model)
 
 
+plan_type_strings = [
+    "JointSpacePlan",
+    "JointSpacePlanRelative",
+    "IiwaTaskSpacePlan",
+    "PlanarTaskSpacePlan",
+    "PlanarHybridPositionForcePlan",
+    "OpenLeftDoorPositionPlan",
+    "OpenLeftDoorImpedancePlan",
+    "JointSpacePlanGoToTarget",
+]
+
+PlanTypes = dict()
+for plan_types_string in plan_type_strings:
+    PlanTypes[plan_types_string] = plan_types_string
+
+
+class PlanBase:
+    def __init__(self,
+                 type = None,
+                 trajectory = None,):
+        self.type = type
+        self.traj = trajectory
+        self.traj_d = None
+        self.duration = None
+        self.start_time = None
+        if trajectory is not None:
+            self.traj_d = trajectory.derivative(1)
+            self.duration = trajectory.end_time()
+
+    def get_duration(self):
+        return self.duration
+
+
+class JointSpacePlan(PlanBase):
+    def __init__(self,
+                 trajectory=None):
+        PlanBase.__init__(self,
+                          type=PlanTypes["JointSpacePlan"],
+                          trajectory=trajectory)
+
+
 def GetEndEffectorWorldAlignedFrame():
-    X_EEa = Isometry3.Identity()
-    X_EEa.set_rotation(np.array([[0., 1., 0,],
+    X_EEa = RigidTransform.Identity()
+    X_EEa.set_rotation(RotationMatrix(np.array([[0., 1., 0,],
                                  [0, 0, 1],
-                                 [1, 0, 0]]))
+                                 [1, 0, 0]])))
     return X_EEa
 
 
@@ -247,8 +292,10 @@ def GenerateApproachHandlePlans(InterpolateOrientation, is_printing=True):
     # move to grasp left door handle
     p_WQ_start = p_WQ_home
     p_WQ_end = p_WC_handle
+    pitch_start = np.pi / 180 * 135
+    pitch_end = np.pi / 180 * 90
     qtraj_move_to_handle, q_knots_full = InverseKinPointwise(
-        p_WQ_start, p_WQ_end, duration=5.0,
+        p_WQ_start, p_WQ_end, pitch_start, pitch_end, duration=5.0,
         num_knot_points=num_knot_points, q_initial_guess=q_home_full,
         InterpolatePosition=InterpolateStraightLine,
         InterpolateOrientation=InterpolateOrientation,

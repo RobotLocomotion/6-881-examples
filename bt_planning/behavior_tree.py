@@ -7,6 +7,7 @@ from pydrake.systems.framework import AbstractValue, DiagramBuilder, LeafSystem,
 from pydrake.systems.meshcat_visualizer import MeshcatVisualizer, MeshcatPointCloudVisualizer
 from pydrake.systems.sensors import PixelType
 import pydrake.perception as mut
+from pydrake.systems.primitives import Demultiplexer
 from pydrake.systems.rendering import PoseBundle
 from pydrake.math import RigidTransform, RotationMatrix, RollPitchYaw
 
@@ -18,6 +19,7 @@ import py_trees
 from py_trees.composites import Selector, Sequence
 from py_trees.meta import inverter
 
+from manipulation_station_plan_runner import ManipStationPlanRunner
 import time
 
 class BehaviorTree(LeafSystem):
@@ -106,8 +108,7 @@ class BehaviorTree(LeafSystem):
         """
 
         # robot_moving
-        if np.all(np.isclose(
-                iiwa_v.get_value(), np.zeros(iiwa_v.get_value().shape))):
+        if np.all(iiwa_v.get_value() < 0.001):
             self.blackboard.set("robot_moving", False)
         else:
             self.blackboard.set("robot_moving", True)
@@ -314,6 +315,33 @@ if __name__ == "__main__":
 
     # TODO(kmuhlrad): hook up the beginning of the manipulation station
 
+    # TODO(kmuhlrad): need to make plan_list and gripper_setpoint_list ports
+    plan_runner = ManipStationPlanRunner(
+        station=station,
+        kuka_plans=[],
+        gripper_setpoint_list=[])
+    duration_multiplier = plan_runner.kPlanDurationMultiplier
+
+    builder.AddSystem(plan_runner)
+    builder.Connect(plan_runner.GetOutputPort("gripper_setpoint"),
+                    station.GetInputPort("wsg_position"))
+    builder.Connect(plan_runner.GetOutputPort("force_limit"),
+                    station.GetInputPort("wsg_force_limit"))
+
+
+    demux = builder.AddSystem(Demultiplexer(14, 7))
+    builder.Connect(
+        plan_runner.GetOutputPort("iiwa_position_and_torque_command"),
+        demux.get_input_port(0))
+    builder.Connect(demux.get_output_port(0),
+                    station.GetInputPort("iiwa_position"))
+    builder.Connect(demux.get_output_port(1),
+                    station.GetInputPort("iiwa_feedforward_torque"))
+    builder.Connect(station.GetOutputPort("iiwa_position_measured"),
+                    plan_runner.GetInputPort("iiwa_position"))
+    builder.Connect(station.GetOutputPort("iiwa_velocity_estimated"),
+                    plan_runner.GetInputPort("iiwa_velocity"))
+
     # build diagram
     diagram = builder.Build()
 
@@ -329,14 +357,14 @@ if __name__ == "__main__":
     station_context.FixInputPort(station.GetInputPort(
         "iiwa_feedforward_torque").get_index(), np.zeros(7))
     station_context.FixInputPort(station.GetInputPort(
-        "wsg_position").get_index(), np.array([0.045])) #0.045
+        "wsg_position").get_index(), np.array([0.07])) #0.045
     station_context.FixInputPort(station.GetInputPort(
         "wsg_force_limit").get_index(), np.array([40.0]))
 
 
     left_hinge_joint = station.get_multibody_plant().GetJointByName("left_door_hinge")
     left_hinge_joint.set_angle(
-        context=station.GetMutableSubsystemContext(station.get_multibody_plant(), station_context), angle=-np.pi/3)
+        context=station.GetMutableSubsystemContext(station.get_multibody_plant(), station_context), angle=0)
     #
     # pose_bundle = station.GetOutputPort("pose_bundle").Eval(station_context)
     # for i in range(pose_bundle.get_num_poses()):
@@ -345,7 +373,7 @@ if __name__ == "__main__":
 
     simulator.set_publish_every_time_step(False)
     simulator.set_target_realtime_rate(1.0)
-    simulator.StepTo(10.0)
+    simulator.StepTo(5.0)
 
     bt_context = diagram.GetMutableSubsystemContext(bt, simulator.get_mutable_context())
     print bt.GetOutputPort("status").Eval(bt_context)

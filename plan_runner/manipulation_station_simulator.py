@@ -13,9 +13,9 @@ from pydrake.multibody.parsing import Parser
 
 # from underactuated.meshcat_visualizer import MeshcatVisualizer
 from pydrake.systems.meshcat_visualizer import MeshcatVisualizer
-from plan_runner.manipulation_station_plan_runner import ManipStationPlanRunner
-from plan_runner.manipulation_station_plan_runner_diagram import CreateManipStationPlanRunnerDiagram
-from plan_runner.plan_utils import *
+from manipulation_station_plan_runner.manipulation_station_plan_runner import ManipStationPlanRunner
+from manipulation_station_plan_runner.manipulation_station_plan_runner_diagram import CreateManipStationPlanRunnerDiagram
+from manipulation_station_plan_runner.plan_utils import *
 
 X_WObject_default = Isometry3.Identity()
 X_WObject_default.set_translation([.6, 0, 0])

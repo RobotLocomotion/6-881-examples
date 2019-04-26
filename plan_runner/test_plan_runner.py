@@ -1,9 +1,9 @@
 import unittest
 import numpy as np
 
-from plan_runner.manipulation_station_simulator import ManipulationStationSimulator
-from plan_runner.open_left_door import (GenerateOpenLeftDoorPlansByTrajectory,
-                                        GenerateOpenLeftDoorPlansByImpedanceOrPosition,)
+from manipulation_station_plan_runner.manipulation_station_simulator import ManipulationStationSimulator
+from manipulation_station_plan_runner.open_left_door import (GenerateOpenLeftDoorPlansByTrajectory,
+                                                             GenerateOpenLeftDoorPlansByImpedanceOrPosition, )
 
 
 class TestOpenDoor(unittest.TestCase):

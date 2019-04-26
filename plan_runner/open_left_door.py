@@ -2,7 +2,7 @@ from pydrake.multibody import inverse_kinematics
 from pydrake.common.eigen_geometry import Isometry3
 from pydrake.math import RollPitchYaw, RotationMatrix
 
-from plan_runner.manipulation_station_plan_runner import *
+from manipulation_station_plan_runner.manipulation_station_plan_runner import *
 
 # Define global variables used for IK.
 plant = station.get_mutable_multibody_plant()

@@ -5,8 +5,8 @@ import meshcat
 
 from pddl_planning.problems import load_dope
 from pddl_planning.simulation import compute_duration, ForceControl
-from plan_runner.manipulation_station_simulator import ManipulationStationSimulator
-from plan_runner.open_left_door import GenerateOpenLeftDoorPlansByImpedanceOrPosition
+from manipulation_station_plan_runner.manipulation_station_simulator import ManipulationStationSimulator
+from manipulation_station_plan_runner.open_left_door import GenerateOpenLeftDoorPlansByImpedanceOrPosition
 
 class TestPDDLPlanning(unittest.TestCase):
     def setUp(self):

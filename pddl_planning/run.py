@@ -22,8 +22,8 @@ from pddlstream.language.function import FunctionInfo
 from pddlstream.language.generator import from_gen_fn, from_fn
 from pddlstream.utils import print_solution, read, INF, get_file_path
 
-from plan_runner.manipulation_station_simulator import ManipulationStationSimulator
-from plan_runner.open_left_door import GenerateOpenLeftDoorPlansByImpedanceOrPosition
+from manipulation_station_plan_runner.manipulation_station_simulator import ManipulationStationSimulator
+from manipulation_station_plan_runner.open_left_door import GenerateOpenLeftDoorPlansByImpedanceOrPosition
 
 from pydrake.math import RigidTransform
 from pydrake.common.eigen_geometry import Isometry3

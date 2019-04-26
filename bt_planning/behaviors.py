@@ -2,6 +2,7 @@ from py_trees.behaviour import Behaviour
 from py_trees.common import Status
 from py_trees.blackboard import Blackboard
 
+from planning import GenerateApproachHandlePlans, InterpolateYawAngle
 ########################## Conditions ##########################
 
 
@@ -54,7 +55,7 @@ class On(Behaviour):
 
         @param obj str. The name of the object, such as "soup".
         @param surace str. The name of the desired surface, such as
-            "bottom_shelf".
+            "shelf_lower".
         @param name str. The name of the BT node.
         """
         super(On, self).__init__(name)
@@ -295,7 +296,7 @@ class PlaceDrake(Behaviour):
 
         @param obj str. The name of the object to place, such as "soup".
         @param surface str. The surface on which to place the object such as
-            "bottom_shelf".
+            "shelf_lower".
         @param name str. The name of the BT node.
         """
         super(PlaceDrake, self).__init__(name)
@@ -351,7 +352,9 @@ class OpenDoorDrake(Behaviour):
 
         if not self.blackboard.get("robot_moving"):
             if not self.sent:
-                # TODO(kmuhlrad): plan stuff
+                plan_list, gripper_setpoint_list, q_final_full = GenerateApproachHandlePlans(InterpolateYawAngle)
+                self.blackboard.set("plan_list", plan_list)
+                self.blackboard.set("gripper_setpoint_list", gripper_setpoint_list)
                 self.feedback_message = "Sent plan to open {}".format(
                     self.door)
                 self.sent = True

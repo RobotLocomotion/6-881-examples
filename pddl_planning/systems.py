@@ -2,7 +2,7 @@ from pydrake.systems.framework import DiagramBuilder
 from pydrake.systems.primitives import Demultiplexer, LogOutput
 
 def connect_plan_runner(builder, station, plan):
-    from plan_runner.manipulation_station_plan_runner import ManipStationPlanRunner
+    from manipulation_station_plan_runner.manipulation_station_plan_runner import ManipStationPlanRunner
     plan_list, gripper_setpoints = plan
 
     # Add plan runner.

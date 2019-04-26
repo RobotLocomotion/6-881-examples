@@ -1,10 +1,6 @@
-import numpy as np
-import sys
-
 from pydrake.systems.framework import BasicVector, LeafSystem, PortDataType
 
-from manipulation_station_plan_runner.robot_plans import *
-from manipulation_station_plan_runner.open_left_door_plans import *
+from plan_runner.open_left_door_plans import *
 
 
 class ManipStationPlanRunner(LeafSystem):
@@ -62,39 +58,38 @@ class ManipStationPlanRunner(LeafSystem):
         # create a multibodyplant containing the robot only, which is used for
         # jacobian calculations.
         self.plant_iiwa = station.get_controller_plant()
-        self.tree_iiwa = self.plant_iiwa.tree()
         self.context_iiwa = self.plant_iiwa.CreateDefaultContext()
         self.l7_frame = self.plant_iiwa.GetFrameByName('iiwa_link_7')
 
         # Declare iiwa_position/torque_command publishing rate
-        self._DeclarePeriodicPublish(control_period)
+        self.DeclarePeriodicPublish(control_period)
 
         # iiwa position input port
         self.iiwa_position_input_port = \
-            self._DeclareInputPort(
-                "iiwa_position", PortDataType.kVectorValued, 7)
+            self.DeclareVectorInputPort(
+                "iiwa_position", BasicVector(7))
 
         # iiwa velocity input port
         self.iiwa_velocity_input_port = \
-            self._DeclareInputPort(
-                "iiwa_velocity", PortDataType.kVectorValued, 7)
+            self.DeclareVectorInputPort(
+                "iiwa_velocity", BasicVector(7))
 
         # position and torque command output port
         # first 7 elements are position commands.
         # last 7 elements are torque commands.
         self.iiwa_position_command_output_port = \
-            self._DeclareVectorOutputPort("iiwa_position_and_torque_command",
-                                          BasicVector(self.nu*2), self._CalcIiwaCommand)
+            self.DeclareVectorOutputPort("iiwa_position_and_torque_command",
+                                          BasicVector(self.nu*2), self.CalcIiwaCommand)
 
         # gripper control
-        self._DeclareDiscreteState(1)
-        self._DeclarePeriodicDiscreteUpdate(period_sec=0.1)
+        self.DeclareDiscreteState(1)
+        self.DeclarePeriodicDiscreteUpdate(period_sec=0.1)
         self.hand_setpoint_output_port = \
-            self._DeclareVectorOutputPort(
-                "gripper_setpoint", BasicVector(1), self._CalcHandSetpointOutput)
+            self.DeclareVectorOutputPort(
+                "gripper_setpoint", BasicVector(1), self.CalcHandSetpointOutput)
         self.gripper_force_limit_output_port = \
-            self._DeclareVectorOutputPort(
-                "force_limit", BasicVector(1), self._CalcForceLimitOutput)
+            self.DeclareVectorOutputPort(
+                "force_limit", BasicVector(1), self.CalcForceLimitOutput)
 
         self.kPlanDurationMultiplier = 1.1
 
@@ -124,7 +119,7 @@ class ManipStationPlanRunner(LeafSystem):
                       "), starting at %f for a duration of %f seconds." % \
                       (t, self.current_plan.duration*self.kPlanDurationMultiplier) + "\n"
 
-    def _CalcIiwaCommand(self, context, y_data):
+    def CalcIiwaCommand(self, context, y_data):
         self._GetCurrentPlan(context)
 
         t= context.get_time()
@@ -148,11 +143,11 @@ class ManipStationPlanRunner(LeafSystem):
             if self.current_plan.xyz_offset is None:
                 # update self.context_iiwa
                 x_iiwa_mutable = \
-                    self.tree_iiwa.GetMutablePositionsAndVelocities(self.context_iiwa)
+                    self.plant_iiwa.GetMutablePositionsAndVelocities(self.context_iiwa)
                 x_iiwa_mutable[:7] = q_iiwa
 
                 # Pose of frame L7 in world frame
-                X_WL7 = self.tree_iiwa.CalcRelativeTransform(
+                X_WL7 = self.plant_iiwa.CalcRelativeTransform(
                     self.context_iiwa, frame_A=self.plant_iiwa.world_frame(),
                     frame_B=self.l7_frame)
 
@@ -169,13 +164,13 @@ class ManipStationPlanRunner(LeafSystem):
                 self.current_plan.type == PlanTypes["OpenLeftDoorPositionPlan"]:
             # update self.context_iiwa
             x_iiwa_mutable = \
-                self.tree_iiwa.GetMutablePositionsAndVelocities(self.context_iiwa)
+                self.plant_iiwa.GetMutablePositionsAndVelocities(self.context_iiwa)
             x_iiwa_mutable[:7] = q_iiwa
 
             Jv_WL7q, p_HrQ, R_L7L7r, R_WL7 = self.current_plan.CalcKinematics(
                 l7_frame=self.l7_frame,
                 world_frame=self.plant_iiwa.world_frame(),
-                tree_iiwa=self.tree_iiwa, context_iiwa=self.context_iiwa,
+                tree_iiwa=self.plant_iiwa, context_iiwa=self.context_iiwa,
                 t_plan=t_plan)
 
             # compute commands
@@ -198,7 +193,7 @@ class ManipStationPlanRunner(LeafSystem):
             print "t: ", context.get_time()
             self.last_print_time = context.get_time()
 
-    def _DoCalcDiscreteVariableUpdates(self, context, events, discrete_state):
+    def DoCalcDiscreteVariableUpdates(self, context, events, discrete_state):
         # Call base method to ensure we do not get recursion.
         LeafSystem._DoCalcDiscreteVariableUpdates(self, context, events, discrete_state)
 
@@ -206,12 +201,12 @@ class ManipStationPlanRunner(LeafSystem):
         # Close gripper after plan has been executed
         new_state[:] = self.current_gripper_setpoint
 
-    def _CalcHandSetpointOutput(self, context, y_data):
+    def CalcHandSetpointOutput(self, context, y_data):
         state = context.get_discrete_state_vector().get_value()
         y = y_data.get_mutable_value()
         # Get the ith finger control output
         y[:] = state[0]
 
-    def _CalcForceLimitOutput(self, context, output):
+    def CalcForceLimitOutput(self, context, output):
         output.SetAtIndex(0, 15.0)
 

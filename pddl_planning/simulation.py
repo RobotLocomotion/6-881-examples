@@ -11,7 +11,7 @@ class Control(object):
     def polynomial(self):
         raise NotImplementedError()
     def plan(self):
-        from plan_runner.robot_plans import JointSpacePlan
+        from manipulation_station_plan_runner.robot_plans import JointSpacePlan
         return JointSpacePlan(self.polynomial())
 
 

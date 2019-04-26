@@ -2,8 +2,8 @@ import numpy as np
 import sys
 
 from pydrake.systems.framework import Diagram, AbstractValue, LeafSystem, DiagramBuilder, BasicVector, PortDataType
-from plan_runner.robot_plans import *
-from plan_runner.open_left_door_plans import *
+from manipulation_station_plan_runner.robot_plans import *
+from manipulation_station_plan_runner.open_left_door_plans import *
 
 
 class PlanScheduler(LeafSystem):
