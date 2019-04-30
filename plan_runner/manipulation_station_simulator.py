@@ -90,13 +90,19 @@ class ManipulationStationSimulator:
                         self.station.GetInputPort("wsg_force_limit"))
 
 
-        demux = builder.AddSystem(Demultiplexer(14, 7))
-        builder.Connect(
-            plan_runner.GetOutputPort("iiwa_position_and_torque_command"),
-            demux.get_input_port(0))
-        builder.Connect(demux.get_output_port(0),
+        # demux = builder.AddSystem(Demultiplexer(14, 7))
+        # builder.Connect(
+        #     plan_runner.GetOutputPort("iiwa_position_command"),
+        #     demux.get_input_port(0))
+        # builder.Connect(
+        #     plan_runner.GetOutputPort("iiwa_position_command"),
+        #     demux.get_input_port(0))
+        builder.Connect(plan_runner.GetOutputPort("iiwa_position_command"),
                         self.station.GetInputPort("iiwa_position"))
-        builder.Connect(demux.get_output_port(1),
+        builder.Connect(
+            station.get_mutable_multibody_plant().get_generalized_contact_forces_output_port(self.station.get_mutable_multibody_plant().GetModelInstanceByName("iiwa")),
+            plan_runner.GetInputPort("iiwa_torque_external"))
+        builder.Connect(plan_runner.GetOutputPort("iiwa_torque_command"),
                         self.station.GetInputPort("iiwa_feedforward_torque"))
         builder.Connect(self.station.GetOutputPort("iiwa_position_measured"),
                         plan_runner.GetInputPort("iiwa_position"))
@@ -114,7 +120,7 @@ class ManipulationStationSimulator:
             #                 viz.GetInputPort("contact_results"))
 
         # Add logger
-        iiwa_position_command_log = LogOutput(demux.get_output_port(0), builder)
+        iiwa_position_command_log = LogOutput(plan_runner.GetOutputPort("iiwa_position_command"), builder)
         iiwa_position_command_log._DeclarePeriodicPublish(0.005)
 
         iiwa_external_torque_log = LogOutput(

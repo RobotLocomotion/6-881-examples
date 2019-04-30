@@ -241,10 +241,11 @@ def AddOpenDoorFullyPlans(plan_list, gripper_setpoint_list):
         xyz_traj = ConnectPointsWithCubicPolynomial(
             np.zeros(3), delta_xyz[i], xyz_durations[i])
         plan_list.append(IiwaTaskSpacePlan(
-            duration=xyz_durations[i],
-            trajectory=xyz_traj,
-            R_WEa_ref=R_WEa_ref,
-            p_EQ=p_EQ))
+            plant=plant,
+            xyz_traj=xyz_traj,
+            Q_WT_ref=R_WEa_ref,
+            task_frame_name="body",
+            p_TQ=p_EQ))
         gripper_setpoint_list.append(xyz_gripper_setpoint[i])
 
     # plan from current position to pre-swing
