@@ -28,14 +28,24 @@ class ManipStationPlanRunner(LeafSystem):
     - kuka_plans be an empty list, or
     - kuka_plans[0].traj be a valid PiecewisePolynomial.
     """
-    def __init__(self, kuka_plans, gripper_setpoint_list, control_period=0.005, print_period=0.5):
+    def __init__(self,
+                 kuka_plans,
+                 gripper_setpoint_list,
+                 control_period=0.005,
+                 print_period=0.5):
         LeafSystem.__init__(self)
         assert len(kuka_plans) == len(gripper_setpoint_list)
         self.set_name("Manipulation Plan Runner")
 
+        # Stuff for iiwa control
+        self.nq = 7
+        self.print_period = print_period
+        self.last_print_time = -print_period
+        self.control_period = control_period
+
         # Add a zero order hold to hold the current position of the robot
         kuka_plans.insert(0, JointSpacePlanRelative(
-            duration=2.0, delta_q=np.zeros(7)))
+            duration=2.0, delta_q=np.zeros(self.nq)))
         gripper_setpoint_list.insert(0, 0.055)
 
         if (len(kuka_plans) > 1 and
@@ -54,36 +64,30 @@ class ManipStationPlanRunner(LeafSystem):
         self.current_gripper_setpoint = None
         self.current_plan_idx = 0
 
-        # Stuff for iiwa control
-        self.nu = 7
-        self.print_period = print_period
-        self.last_print_time = -print_period
-        self.control_period = control_period
-
         # iiwa position input port
         self.iiwa_position_input_port = \
-            self.DeclareInputPort(
-                "iiwa_position", PortDataType.kVectorValued, 7)
+            self.DeclareVectorInputPort(
+                "iiwa_position", BasicVector(self.nq))
 
         # iiwa velocity input port
         self.iiwa_velocity_input_port = \
-            self.DeclareInputPort(
-                "iiwa_velocity", PortDataType.kVectorValued, 7)
+            self.DeclareVectorInputPort(
+                "iiwa_velocity", BasicVector(self.nq))
 
         # iiwa external torque input port
         self.iiwa_external_torque_input_port = \
-            self.DeclareInputPort(
-                "iiwa_torque_external", PortDataType.kVectorValued, 7)
+            self.DeclareVectorInputPort(
+                "iiwa_torque_external", BasicVector(self.nq))
 
         # position and torque command output port
         self.iiwa_position_command_output_port = \
             self.DeclareVectorOutputPort(
                 "iiwa_position_command",
-                BasicVector(self.nu), self._CalcIiwaPositionCommand)
+                BasicVector(self.nq), self._CalcIiwaPositionCommand)
         self.iiwa_torque_command_output_port = \
             self.DeclareVectorOutputPort(
                 "iiwa_torque_command",
-                BasicVector(self.nu), self._CalcIiwaTorqueCommand)
+                BasicVector(self.nq), self._CalcIiwaTorqueCommand)
 
         # gripper setpoint and torque limit
         self.hand_setpoint_output_port = \
@@ -95,11 +99,9 @@ class ManipStationPlanRunner(LeafSystem):
                 "force_limit", BasicVector(1), self._CalcForceLimitOutput)
 
         # Declare command publishing rate
-        # state[0:7]: position command
-        # state[7:14]: torque command
-        # state[14]: gripper_setpoint
-        # TODO(kmuhlrad): figure out if I should use variables instead
-        self.DeclareDiscreteState(self.nu*2 + 1)
+        self.q_cmd_idx = self.DeclareDiscreteState(self.nq)
+        self.tau_cmd_idx = self.DeclareDiscreteState(self.nq)
+        self.wsg_cmd_idx = self.DeclareDiscreteState(1)
         self.DeclarePeriodicDiscreteUpdate(period_sec=self.control_period)
 
         self.kPlanDurationMultiplier = 1.1
@@ -126,7 +128,7 @@ class ManipStationPlanRunner(LeafSystem):
                 else:
                     # There are no more available plans. Hold current position.
                     self.current_plan = JointSpacePlanRelative(
-                        duration=3600., delta_q=np.zeros(7))
+                        duration=3600., delta_q=np.zeros(self.nq))
                     print 'No more plans to run, holding current position...\n'
 
                 self.current_plan_start_time = t
@@ -147,15 +149,24 @@ class ManipStationPlanRunner(LeafSystem):
         tau_iiwa = self.iiwa_external_torque_input_port.Eval(context)
         t_plan = t - self.current_plan_start_time
 
-        # TODO(kmuhlrad): STOPPED HERE
+        q_cmd_new = discrete_state.get_mutable_vector(
+            self.q_cmd_idx).get_mutable_value()
+        tau_cmd_new = discrete_state.get_mutable_vector(
+            self.tau_cmd_idx).get_mutable_value()
+        wsg_cmd_new = discrete_state.get_mutable_vector(
+            self.wsg_cmd_idx).get_mutable_value()
 
-        new_control_output = discrete_state.get_mutable_vector().get_mutable_value()
-
-        new_control_output[0:self.nu] = \
-            self.current_plan.CalcPositionCommand(q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period)
-        new_control_output[self.nu:2*self.nu] = \
-            self.current_plan.CalcTorqueCommand(q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period)
-        new_control_output[14] = self.current_gripper_setpoint
+        # TODO(kmuhlrad): this line now errors
+        q_cmd_new[:] = \
+            self.current_plan.CalcPositionCommand(
+                q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period,
+                q_ref_log=self.q_ref_log,
+                sample_times=self.sample_times,
+                t=t)
+        tau_cmd_new[:] = \
+            self.current_plan.CalcTorqueCommand(
+                q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period)
+        wsg_cmd_new[:] = self.current_gripper_setpoint
 
         # print current simulation time
         if (self.print_period and
@@ -164,22 +175,19 @@ class ManipStationPlanRunner(LeafSystem):
             self.last_print_time = t
 
     def _CalcIiwaPositionCommand(self, context, y_data):
-        state = context.get_discrete_state_vector().get_value()
+        state = context.get_discrete_state(self.q_cmd_idx).get_value()
         y = y_data.get_mutable_value()
-        # Get the ith finger control output
-        y[:] = state[0:self.nu]
+        y[:] = state
 
     def _CalcIiwaTorqueCommand(self, context, y_data):
-        state = context.get_discrete_state_vector().get_value()
+        state = context.get_discrete_state(self.tau_cmd_idx).get_value()
         y = y_data.get_mutable_value()
-        # Get the ith finger control output
-        y[:] = state[self.nu:2*self.nu]
+        y[:] = state
 
     def _CalcGripperSetpointOutput(self, context, y_data):
-        state = context.get_discrete_state_vector().get_value()
+        state = context.get_discrete_state(self.wsg_cmd_idx).get_value()
         y = y_data.get_mutable_value()
-        # Get the ith finger control output
-        y[:] = state[14]
+        y[:] = state
 
     def _CalcForceLimitOutput(self, context, output):
         output.SetAtIndex(0, 15.0)

@@ -33,16 +33,16 @@ class PlanScheduler(LeafSystem):
         self.current_plan_idx = 0
 
         # Output ports for plans and gripper setpoints
-        self.iiwa_plan_output_port = self._DeclareAbstractOutputPort(
+        self.iiwa_plan_output_port = self.DeclareAbstractOutputPort(
             "iiwa_plan",
             lambda: AbstractValue.Make(PlanBase()),
             self._GetCurrentPlan)
 
         self.gripper_setpoint_output_port = \
-            self._DeclareVectorOutputPort(
+            self.DeclareVectorOutputPort(
                 "gripper_setpoint", BasicVector(1), self._CalcGripperSetpointOutput)
         self.gripper_force_limit_output_port = \
-            self._DeclareVectorOutputPort(
+            self.DeclareVectorOutputPort(
                 "force_limit", BasicVector(1), self._CalcForceLimitOutput)
 
         self.kPlanDurationMultiplier = 1.1
@@ -104,42 +104,42 @@ class IiwaController(LeafSystem):
 
         # iiwa position input port
         self.iiwa_position_input_port = \
-            self._DeclareInputPort(
-                "iiwa_position", PortDataType.kVectorValued, 7)
+            self.DeclareVectorInputPort(
+                "iiwa_position", BasicVector(7))
 
         # iiwa velocity input port
         self.iiwa_velocity_input_port = \
-            self._DeclareInputPort(
-                "iiwa_velocity", PortDataType.kVectorValued, 7)
+            self.DeclareVectorInputPort(
+                "iiwa_velocity", BasicVector(7))
 
         # iiwa external torque input port
         self.iiwa_external_torque_input_port = \
-            self._DeclareInputPort(
-                "iiwa_torque_external", PortDataType.kVectorValued, 7)
+            self.DeclareVectorInputPort(
+                "iiwa_torque_external", BasicVector(7))
 
         # plan abstract input port
         self.plan_input_port = \
-            self._DeclareAbstractInputPort(
+            self.DeclareAbstractInputPort(
                 "iiwa_plan", AbstractValue.Make(PlanBase()))
 
         # position and torque command output port
         self.iiwa_position_command_output_port = \
-            self._DeclareVectorOutputPort("iiwa_position_command",
+            self.DeclareVectorOutputPort("iiwa_position_command",
                                           BasicVector(self.nu), self._CalcIiwaPositionCommand)
         self.iiwa_torque_command_output_port = \
-            self._DeclareVectorOutputPort("iiwa_torque_command",
+            self.DeclareVectorOutputPort("iiwa_torque_command",
                                           BasicVector(self.nu), self._CalcIiwaTorqueCommand)
 
         # Declare command publishing rate
         # state[0:7]: position command
         # state[7:14]: torque command
         # state[14]: gripper_setpoint
-        self._DeclareDiscreteState(self.nu*2)
-        self._DeclarePeriodicDiscreteUpdate(period_sec=self.control_period)
+        self.DeclareDiscreteState(self.nu*2)
+        self.DeclarePeriodicDiscreteUpdate(period_sec=self.control_period)
 
-    def _DoCalcDiscreteVariableUpdates(self, context, events, discrete_state):
+    def DoCalcDiscreteVariableUpdates(self, context, events, discrete_state):
         # Call base method to ensure we do not get recursion.
-        LeafSystem._DoCalcDiscreteVariableUpdates(self, context, events, discrete_state)
+        LeafSystem.DoCalcDiscreteVariableUpdates(self, context, events, discrete_state)
 
         t= context.get_time()
         self.current_plan = self.EvalAbstractInput(

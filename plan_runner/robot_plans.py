@@ -33,6 +33,7 @@ class PlanBase:
         if trajectory is not None:
             self.traj_d = trajectory.derivative(1)
             self.duration = trajectory.end_time()
+            self.nq = self.traj.rows()
 
     def get_duration(self):
         return self.duration
