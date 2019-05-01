@@ -1,4 +1,4 @@
-from pydrake.math import RollPitchYaw
+from pydrake.math import RollPitchYaw, RigidTransform
 from robot_plans import *
 
 #--------------------------------------------------------------------------------------------------
@@ -38,6 +38,53 @@ q_post_swing = np.array([20.0, 16.72, -17.43, -89.56, 47.30, 63.53, -83.77])*np.
 
 
 
+# X_EEa = GetEndEffectorWorldAlignedFrame()
+# X_L7E = GetL7EeTransform()
+
+# '''
+# trajectory is a 3-dimensional PiecewisePolynomial. It describes the trajectory
+#     of a point fixed to the ee frame in world frame,
+#     RELATIVE TO WHERE THE POINT IS AT THE BEGINNING OF THE PLAN.
+# R_WE_ref is the fixed pose (RotationMatrix) of the end effector while it its origin moves along
+#     the given trajectory.
+# the value of duration will be overwritten by trajectory.end_time() if trajectory
+#     is a valid PiecewisePolynomial.
+# The axes of L7 and Ea (End Effector World Frane Aligned) are actually aligned.
+#     So R_EaL7 is identity.
+# p_EQ: the point in frame L7 that tracks trajectory. Its default value is the origin of L7.
+# '''
+# class IiwaTaskSpacePlan(PlanBase):
+#     def __init__(self,
+#                  duration=None,
+#                  trajectory=None,
+#                  R_WEa_ref=None,
+#                  p_EQ=np.zeros(3)):
+#         self.xyz_offset = None
+
+#         self.plant_iiwa = station.get_controller_plant()
+#         self.context_iiwa = self.plant_iiwa.CreateDefaultContext()
+#         self.l7_frame = self.plant_iiwa.GetFrameByName('iiwa_link_7')
+
+#         PlanBase.__init__(self,
+#                           type=PlanTypes["IiwaTaskSpacePlan"],
+#                           trajectory=trajectory)
+#         self.duration = duration
+
+#         self.q_iiwa_previous = np.zeros(7)
+#         if trajectory is not None and R_WEa_ref is not None:
+#             assert trajectory.rows() == 3
+#             assert np.allclose(self.duration, trajectory.end_time())
+#             self.traj = trajectory
+#             self.p_L7Q = X_L7E.multiply(p_EQ)
+
+#             # L7 and Ea are already aligned.
+#             # This is the identity matrix.
+#             self.R_EaL7 = X_EEa.inverse().rotation().dot(X_L7E.inverse().rotation().matrix())
+
+#             # Store EE rotation reference as a quaternion.
+#             self.Q_WL7_ref = R_WEa_ref.ToQuaternion()
+#             self.p_EQ = p_EQ
+
 class OpenLeftDoorPlan(PlanBase):
     def __init__(self, angle_start, angle_end=np.pi/4, duration=10.0, type=None):
         angle_traj = ConnectPointsWithCubicPolynomial(
@@ -49,12 +96,12 @@ class OpenLeftDoorPlan(PlanBase):
                           type=type,
                           trajectory=angle_traj)
 
-    def CalcKinematics(self, l7_frame, world_frame, tree_iiwa, context_iiwa, t_plan):
+    def CalcKinematics(self, X_L7E, l7_frame, world_frame, plant_iiwa, context_iiwa, t_plan):
         """
         @param X_L7E: transformation from frame E (end effector) to frame L7.
         @param l7_frame: A BodyFrame object of frame L7.
         @param world_frame: A BodyFrame object of the world frame.
-        @param tree_iiwa: A MultibodyTree object of the robot.
+        @param plant_iiwa: A MultibodyPlant object of the robot.
         @param context_iiwa: A Context object that describes the current state of the robot.
         @param t_plan: time passed since the beginning of this Plan, expressed in seconds.
         @return: Jv_WL7q: geometric jacboain of point Q in frame L7.
@@ -62,7 +109,7 @@ class OpenLeftDoorPlan(PlanBase):
         """
         # calculate Geometric jacobian (6 by 7 matrix) of point Q in frame L7.
         p_L7Q = X_L7E.multiply(p_EQ)
-        Jv_WL7q = tree_iiwa.CalcFrameGeometricJacobianExpressedInWorld(
+        Jv_WL7q = plant_iiwa.CalcFrameGeometricJacobianExpressedInWorld(
             context=context_iiwa, frame_B=l7_frame,
             p_BoFo_B=p_L7Q)
 
@@ -80,14 +127,14 @@ class OpenLeftDoorPlan(PlanBase):
              -r_handle * np.cos(handle_angle_ref), 0])
         X_HrW = X_WHr.inverse()
 
-        X_WL7 = tree_iiwa.CalcRelativeTransform(
+        X_WL7 = plant_iiwa.CalcRelativeTransform(
             context_iiwa, frame_A=world_frame,
             frame_B=l7_frame)
 
         p_WQ = X_WL7.multiply(p_L7Q)
         p_HrQ = X_HrW.multiply(p_WQ)
 
-        Q_WL7 = X_WL7.quaternion()
+        Q_WL7 = X_WL7.rotation().ToQuaternion()
         Q_L7L7r = Q_WL7.inverse().multiply(self.Q_WL7_ref)
 
         return Jv_WL7q, p_HrQ, Q_L7L7r, Q_WL7
@@ -103,16 +150,17 @@ class OpenLeftDoorPositionPlan(OpenLeftDoorPlan):
             type=PlanTypes["OpenLeftDoorPositionPlan"])
         self.q_iiwa_previous = np.zeros(7)
 
-    def CalcPositionCommand(self, t_plan, q_iiwa, Jv_WL7q, p_HrQ, Q_L7L7r, Q_WL7, control_period):
-        """
-        @param t_plan: t_plan: time passed since the beginning of this Plan, expressed in seconds.
-        @param q_iiwa: current configuration of the robot.
-        @param Jv_WL7q: geometric jacboain of point Q in frame L7.
-        @param p_HrQ: position of point Q relative to frame Hr.
-        @param control_period: the amount of time between consecutive command updates.
-        @return: position command to the robot.
-        """
+    def CalcPositionCommand(self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period, **kwargs):
         if t_plan < self.duration:
+            X_L7E = GetL7EeTransform()
+            plant_iiwa = station.get_controller_plant()
+            context_iiwa = plant_iiwa.CreateDefaultContext()
+            l7_frame = plant_iiwa.GetFrameByName('iiwa_link_7')
+            world_frame = plant_iiwa.world_frame()
+
+            Jv_WL7q, p_HrQ, Q_L7L7r, Q_WL7 = self.CalcKinematics(
+                X_L7E, l7_frame, world_frame, plant_iiwa, context_iiwa, t_plan)
+
             # first 3: angular velocity, last 3: translational velocity
             v_ee_desired = np.zeros(6)
 
@@ -133,7 +181,7 @@ class OpenLeftDoorPositionPlan(OpenLeftDoorPlan):
         else:
             return self.q_iiwa_previous
 
-    def CalcTorqueCommand(self):
+    def CalcTorqueCommand(self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period, **kwargs):
         return np.zeros(7)
 
 
@@ -147,15 +195,25 @@ class OpenLeftDoorImpedancePlan(OpenLeftDoorPlan):
             type=PlanTypes["OpenLeftDoorImpedancePlan"])
         self.q_iiwa_previous = np.zeros(7)
 
-    def CalcPositionCommand(self, t_plan, q_iiwa):
+    def CalcPositionCommand(self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period, **kwargs):
         if t_plan < self.duration:
             self.q_iiwa_previous[:] = q_iiwa
             return q_iiwa
         else:
             return self.q_iiwa_previous
 
-    def CalcTorqueCommand(self, t_plan, Jv_WL7q, p_HrQ, Q_L7L7r, Q_WL7):
+    # self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period, **kwargs
+    def CalcTorqueCommand(self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period, **kwargs):
         if t_plan < self.duration:
+            X_L7E = GetL7EeTransform()
+            plant_iiwa = station.get_controller_plant()
+            context_iiwa = plant_iiwa.CreateDefaultContext()
+            l7_frame = plant_iiwa.GetFrameByName('iiwa_link_7')
+            world_frame = plant_iiwa.world_frame()
+
+            Jv_WL7q, p_HrQ, Q_L7L7r, Q_WL7 = self.CalcKinematics(
+                X_L7E, l7_frame, world_frame, plant_iiwa, context_iiwa, t_plan)
+
             # first 3: angular velocity, last 3: translational velocity
             f_ee_desired = np.zeros(6)
 

@@ -157,12 +157,18 @@ class ManipStationPlanRunner(LeafSystem):
             self.wsg_cmd_idx).get_mutable_value()
 
         # TODO(kmuhlrad): this line now errors
-        q_cmd_new[:] = \
-            self.current_plan.CalcPositionCommand(
-                q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period,
-                q_ref_log=self.q_ref_log,
-                sample_times=self.sample_times,
-                t=t)
+
+        try:
+            q_cmd_new[:] = \
+                self.current_plan.CalcPositionCommand(
+                    q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period,
+                    q_ref_log=self.q_ref_log,
+                    sample_times=self.sample_times,
+                    t=t)
+        except:
+            print "CURRENT PLAN TYPE", self.current_plan
+            raise
+
         tau_cmd_new[:] = \
             self.current_plan.CalcTorqueCommand(
                 q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period)

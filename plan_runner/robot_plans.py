@@ -145,14 +145,17 @@ class JacobianBasedPlan(PlanBase):
         @param q_robot: robot configuration.
         @param v_robot: robot velocity.
         Updates the following data members:
-        - Jv_WTq: geometric jacboain of point Q in frame T. T is the "task frame",
+        - Jv_WTq: geometric Jacobian of point Q in frame T. T is the "task frame",
             which can be the end effector frame or the body frame of the last link.
         - p_WQ: position of point Q in world frame.
         - Q_WT: orientation of frame T in world frame as a quaternion.
         - X_WT: pose of frame T relative to world frame.
         """
         # Update context
+        print "DISCRETE STATE", self.context_robot.get_discrete_state(0)
         self.context_robot.SetDiscreteState(np.hstack((q_robot, v_robot)))
+        # self.context_robot.SetDiscreteState(0, q_robot)
+        # self.context_robot.SetDiscreteState(1, v_robot)
 
         # Pose of frame L7 in world frame
         self.X_WT = self.plant_robot.CalcRelativeTransform(
