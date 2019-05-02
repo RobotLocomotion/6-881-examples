@@ -4,6 +4,7 @@ from py_trees.trees import BehaviourTree
 from py_trees.composites import Sequence, Selector
 from py_trees.meta import inverter
 from py_trees.visitors import VisitorBase
+import copy
 
 class PPA:
     def __init__(self, action_name, pre, post):
@@ -29,7 +30,7 @@ class PPA:
 
 class Condition(Behaviour):
     def __init__(self, condition_key, condition_value):
-        super(Condition, self).__init__(name="{} is {}".format(condition_key, condition_value))
+        super(Condition, self).__init__(name="{}_is_{}".format(condition_key, condition_value))
         self.condition_key = condition_key
         self.condition_value = condition_value
         self.blackboard = Blackboard()
@@ -44,7 +45,7 @@ class Condition(Behaviour):
 
 class Action(Behaviour):
     def __init__(self, action):
-        super(Action, self).__init__(name=action.action_name)
+        super(Action, self).__init__(name="{}_Action".format(action.action_name))
         self.blackboard = Blackboard()
         self.action = action
 
@@ -95,7 +96,7 @@ def get_all_action_templates_for(ppa_set, failed_condition):
         action_templates: a set of PPA objects that satisfy failed_condition
     '''
     action_templates = set()
-    print "FAILED CONDITION", failed_condition
+    # print "FAILED CONDITION", failed_condition
     for action in ppa_set:
         if failed_condition.condition_key in action.post:
             if failed_condition.condition_value == action.post[failed_condition.condition_key]:
@@ -117,26 +118,26 @@ def expand_tree(tree, ppa_set, failed_condition):
         tree_sel: the new subtree with a Selector node
     '''
     action_templates = get_all_action_templates_for(ppa_set, failed_condition)
-    print "ACTION TEMPLATES", action_templates
-    tree_sel = Selector(name=failed_condition.name + " Selector")
-    tree_sel.add_child(failed_condition)
+    # print "ACTION TEMPLATES", action_templates
+    tree_sel = Selector(name=failed_condition.name + "_Selector")
+    tree_sel.add_child(copy.copy(failed_condition))
     for action in action_templates:
         tree_seq = Sequence(name=action.action_name)
         for key in action.pre:
             tree_seq.add_child(Condition(key, action.pre[key]))
         tree_seq.add_child(Action(action))
         tree_sel.add_child(tree_seq)
-    print tree_sel
-    # ascii_tree = py_trees.display.ascii_tree(
-            # tree.root)
-    print tree.root.children
-    print failed_condition
-    # print ascii_tree
+    # print tree_sel
+    # py_trees.display.print_ascii_tree(tree.root)
+    # print
+    # py_trees.display.print_ascii_tree(tree_sel)
+    # print "TREE TYPE", type(tree)
+    # print "TREE_SEL TYPE", type(tree_sel)
+    # print tree.root.children
     success = tree.replace_subtree(failed_condition.id, tree_sel)
-    print "REPLACED", success
-    print tree.root.children
-    # ascii_tree = py_trees.display.ascii_tree(
-    #         tree.root)
+    # print tree.root.children
+    # print "REPLACED", success
+    # py_trees.display.print_ascii_tree(tree.root)
     # print ascii_tree
     return tree, tree_sel
 
@@ -154,8 +155,8 @@ def get_condition_to_expand(tree, tree_visitor, expanded_nodes):
         the next condition to expand, or None if there aren't any
     '''
     for condition in tree_visitor.failing_nodes:
-        if condition not in expanded_nodes:
-            expanded_nodes.append(condition)
+        if condition.name not in expanded_nodes:
+            expanded_nodes.append(condition.name)
             return condition
     return None
 
@@ -198,6 +199,10 @@ def pa_bt(ppa_set, goal_conditions):
 
     '''
     root_seq = Sequence(name="Root")
+
+    for condition in goal_conditions:
+        root_seq.add_child(condition)
+
     tree = BehaviourTree(root_seq)
     condition_bfs = ConditionBFSVisitor()
     tree.visitors.append(condition_bfs)
@@ -206,25 +211,28 @@ def pa_bt(ppa_set, goal_conditions):
     snapshot_visitor = py_trees.visitors.SnapshotVisitor()
     tree.visitors.append(snapshot_visitor)
 
-    for condition in goal_conditions:
-        root_seq.add_child(condition)
-
-    expaned_nodes = []
+    expanded_nodes = []
+    iteration = 1
     while True:
+        print "ITERATION", iteration
         status = Status.INVALID
-        while not status == Status.FAILURE:
+        while not status == Status.FAILURE and not status == Status.SUCCESS:
             tree.tick()
             status = tree.root.status
             ascii_tree = py_trees.display.ascii_tree(
             tree.root,
             snapshot_information=snapshot_visitor)
             print ascii_tree
-        failed_condition = get_condition_to_expand(tree, condition_bfs, expaned_nodes)
-        print "MAIN FAILED CONDITION", failed_condition
+        if status == Status.SUCCESS:
+            break
+        failed_condition = get_condition_to_expand(tree, condition_bfs, expanded_nodes)
+        if not failed_condition:
+            continue
         tree, tree_new_subtree = expand_tree(tree, ppa_set, failed_condition)
         while conflict(tree):
+            print "CONFLICT"
             tree = increase_priority(tree, tree_new_subtree)
-
+        iteration += 1
 
 def make_ppa_set():
     '''
@@ -246,7 +254,8 @@ def make_ppa_set():
     # Place
     place_soup_on_shelf_lower_pre = {
         "robot_moving": False,
-        "robot_holding": "soup"
+        "robot_holding": "soup",
+        # "left_door_open": True
     }
     place_soup_on_shelf_lower_post = {
         "robot_moving": False,
@@ -321,7 +330,7 @@ def init_blackboard():
 
 
 if __name__ == "__main__":
-    py_trees.logging.level = py_trees.logging.Level.DEBUG
+    py_trees.logging.level = py_trees.logging.Level.INFO
 
     ppa_set = make_ppa_set()
 
