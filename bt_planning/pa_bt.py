@@ -1,10 +1,15 @@
+import copy
+import time
+from collections import OrderedDict
+
 from behaviors import *
+
 import py_trees
 from py_trees.trees import BehaviourTree
 from py_trees.composites import Sequence, Selector
 from py_trees.meta import inverter
 from py_trees.visitors import VisitorBase
-import copy
+
 
 class PPA:
     def __init__(self, action_name, pre, post):
@@ -30,7 +35,7 @@ class PPA:
 
 class Condition(Behaviour):
     def __init__(self, condition_key, condition_value):
-        super(Condition, self).__init__(name="{}_is_{}".format(condition_key, condition_value))
+        super(Condition, self).__init__(name="{}_is_{}_Condition".format(condition_key, condition_value))
         self.condition_key = condition_key
         self.condition_value = condition_value
         self.blackboard = Blackboard()
@@ -55,7 +60,8 @@ class Action(Behaviour):
     def update(self):
         if self.counter < 1:
             for key in self.action.pre:
-                self.blackboard.set(key, not self.action.pre[key])
+                if not key in self.action.post or self.action.post[key] == self.action.pre[key]:
+                    self.blackboard.set(key, not self.action.pre[key])
             self.counter += 1
             return Status.RUNNING
 
@@ -96,7 +102,6 @@ def get_all_action_templates_for(ppa_set, failed_condition):
         action_templates: a set of PPA objects that satisfy failed_condition
     '''
     action_templates = set()
-    # print "FAILED CONDITION", failed_condition
     for action in ppa_set:
         if failed_condition.condition_key in action.post:
             if failed_condition.condition_value == action.post[failed_condition.condition_key]:
@@ -118,27 +123,15 @@ def expand_tree(tree, ppa_set, failed_condition):
         tree_sel: the new subtree with a Selector node
     '''
     action_templates = get_all_action_templates_for(ppa_set, failed_condition)
-    # print "ACTION TEMPLATES", action_templates
     tree_sel = Selector(name=failed_condition.name + "_Selector")
     tree_sel.add_child(copy.copy(failed_condition))
     for action in action_templates:
-        tree_seq = Sequence(name=action.action_name)
+        tree_seq = Sequence(name=action.action_name + "_Sequence")
         for key in action.pre:
             tree_seq.add_child(Condition(key, action.pre[key]))
         tree_seq.add_child(Action(action))
         tree_sel.add_child(tree_seq)
-    # print tree_sel
-    # py_trees.display.print_ascii_tree(tree.root)
-    # print
-    # py_trees.display.print_ascii_tree(tree_sel)
-    # print "TREE TYPE", type(tree)
-    # print "TREE_SEL TYPE", type(tree_sel)
-    # print tree.root.children
-    success = tree.replace_subtree(failed_condition.id, tree_sel)
-    # print tree.root.children
-    # print "REPLACED", success
-    # py_trees.display.print_ascii_tree(tree.root)
-    # print ascii_tree
+    tree.replace_subtree(failed_condition.id, tree_sel)
     return tree, tree_sel
 
 
@@ -211,6 +204,8 @@ def pa_bt(ppa_set, goal_conditions):
     snapshot_visitor = py_trees.visitors.SnapshotVisitor()
     tree.visitors.append(snapshot_visitor)
 
+    blackboard = py_trees.blackboard.Blackboard()
+
     expanded_nodes = []
     iteration = 1
     while True:
@@ -223,100 +218,71 @@ def pa_bt(ppa_set, goal_conditions):
             tree.root,
             snapshot_information=snapshot_visitor)
             print ascii_tree
+            time.sleep(1.0)
+            print blackboard
         if status == Status.SUCCESS:
             break
         failed_condition = get_condition_to_expand(tree, condition_bfs, expanded_nodes)
         if not failed_condition:
             continue
         tree, tree_new_subtree = expand_tree(tree, ppa_set, failed_condition)
-        while conflict(tree):
-            print "CONFLICT"
-            tree = increase_priority(tree, tree_new_subtree)
+        # TODO(kmuhlrad): for now ignore conflicts, since they are irrelevant
+        # in this examples
+        # while conflict(tree):
+        #     print "CONFLICT"
+        #     tree = increase_priority(tree, tree_new_subtree)
         iteration += 1
+        time.sleep(1.0)
 
-def make_ppa_set():
+def make_soup_can_ppa_set():
     '''
     Make the precondition-postcondition-action set for the
-    soup can placing demo.
+    soup can placing demo. The preconditions must be ordered because
+    we want to make sure certain conditions are true before checking
+    anything else.
     '''
 
     # Pick
-    pick_soup_pre = {
-        "robot_moving": False,
-        "robot_holding": None
-    }
+    pick_soup_pre = OrderedDict([
+        ("robot_holding", None),
+        ("robot_moving", False)
+    ])
     pick_soup_post = {
         "robot_holding": "soup",
-        "robot_moving": False
+        "robot_moving": False,
+        "soup_on": None
     }
     pick = PPA("PickSoup", pick_soup_pre, pick_soup_post)
 
     # Place
-    place_soup_on_shelf_lower_pre = {
-        "robot_moving": False,
-        "robot_holding": "soup",
-        # "left_door_open": True
-    }
+    place_soup_on_shelf_lower_pre = OrderedDict([
+        ("left_door_open", True),
+        ("robot_holding", "soup"),
+        ("robot_moving", False)
+    ])
     place_soup_on_shelf_lower_post = {
-        "robot_moving": False,
         "robot_holding": None,
-        "soup_on": "shelf_lower"
+        "soup_on": "shelf_lower",
+        "robot_moving": False
     }
     place = PPA("PlaceSoupOnShelfLower", 
                 place_soup_on_shelf_lower_pre, 
                 place_soup_on_shelf_lower_post)
 
     # Open Door
-    open_left_door_pre = {
-        "robot_moving": False,
-        "left_door_open": False
-    }
+    open_left_door_pre = OrderedDict([
+        ("left_door_open", False),
+        ("robot_moving", False)
+    ])
     open_left_door_post = {
-        "robot_moving": False,
-        "left_door_open": True
+        "left_door_open": True,
+        "robot_moving": False
     }
     open_door = PPA("OpenLeftDoor", 
                     open_left_door_pre, 
                     open_left_door_post)
 
     return set([pick, place, open_door])
-
-
-# TODO(kmuhlrad): delete, just for reference
-def make_root():
-    # conditions
-    holding_soup = Holding("soup")
-    soup_on_shelf = On("soup", "shelf_lower")
-    left_door_open = DoorOpen("left_door")
-    moving_inverter = inverter(RobotMoving)("MovingInverter")
-    gripper_empty = inverter(Holding)("soup", "GripperEmpty")
-
-    # actions
-    pick_soup = Pick("soup")
-    place_soup = Place("soup", "shelf_lower")
-    open_left_door = OpenDoor("left_door")
-
-    root = Selector(name="Root")
-
-    soup_on_shelf_seq = Sequence(name="SoupOnShelfSeq")
-
-    open_door_sel = Selector(name="OpenDoorSel")
-    open_door_seq = Sequence(name="OpenDoorSeq")
-
-    pick_soup_sel = Selector(name="PickSoupSel")
-    pick_soup_seq = Sequence(name="PickSoupSeq")
-
-    soup_on_shelf_seq.add_children([open_door_sel, pick_soup_sel, place_soup])
-    open_door_sel.add_children([left_door_open, open_door_seq])
-    open_door_seq.add_children(
-        [gripper_empty, moving_inverter, open_left_door])
-
-    pick_soup_sel.add_children([holding_soup, pick_soup_seq])
-    pick_soup_seq.add_children([gripper_empty, moving_inverter, pick_soup])
-
-    root.add_children([soup_on_shelf, soup_on_shelf_seq])
-
-    return root
 
 
 def init_blackboard():
@@ -332,7 +298,7 @@ def init_blackboard():
 if __name__ == "__main__":
     py_trees.logging.level = py_trees.logging.Level.INFO
 
-    ppa_set = make_ppa_set()
+    ppa_set = make_soup_can_ppa_set()
 
     init_blackboard()
 
