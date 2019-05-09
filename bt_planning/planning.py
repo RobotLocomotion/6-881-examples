@@ -1,11 +1,10 @@
-from pydrake.multibody import inverse_kinematics
-from pydrake.math import RotationMatrix, RigidTransform, RollPitchYaw
 from pydrake.examples.manipulation_station import ManipulationStation
+from pydrake.manipulation.robot_plan_runner import PlanType, PlanData
+from pydrake.math import RotationMatrix, RigidTransform, RollPitchYaw
+from pydrake.multibody import inverse_kinematics
 from pydrake.trajectories import PiecewisePolynomial
 
 import numpy as np
-
-from plan_runner import *
 
 # TODO(kmuhlrad): move these all into a class/function
 
@@ -20,47 +19,6 @@ gripper_model = plant.GetModelInstanceByName("gripper")
 
 world_frame = plant.world_frame()
 gripper_frame = plant.GetFrameByName("body", gripper_model)
-
-
-plan_type_strings = [
-    "JointSpacePlan",
-    "JointSpacePlanRelative",
-    "IiwaTaskSpacePlan",
-    "PlanarTaskSpacePlan",
-    "PlanarHybridPositionForcePlan",
-    "OpenLeftDoorPositionPlan",
-    "OpenLeftDoorImpedancePlan",
-    "JointSpacePlanGoToTarget",
-]
-
-PlanTypes = dict()
-for plan_types_string in plan_type_strings:
-    PlanTypes[plan_types_string] = plan_types_string
-
-
-class PlanBase:
-    def __init__(self,
-                 type = None,
-                 trajectory = None,):
-        self.type = type
-        self.traj = trajectory
-        self.traj_d = None
-        self.duration = None
-        self.start_time = None
-        if trajectory is not None:
-            self.traj_d = trajectory.derivative(1)
-            self.duration = trajectory.end_time()
-
-    def get_duration(self):
-        return self.duration
-
-
-class JointSpacePlan(PlanBase):
-    def __init__(self,
-                 trajectory=None):
-        PlanBase.__init__(self,
-                          type=PlanTypes["JointSpacePlan"],
-                          trajectory=trajectory)
 
 
 def GetEndEffectorWorldAlignedFrame():
@@ -102,6 +60,37 @@ p_EQ = GetEndEffectorWorldAlignedFrame().multiply(np.array([0., 0., 0.090]))
 R_WEa_ref = RollPitchYaw(0, np.pi / 180 * 135, 0).ToRotationMatrix()
 
 
+GRIPPER_OPEN = 0.1
+GRIPPER_CLOSED = 0.005
+
+def GetShelfPose(shelf_name):
+    surface_translations = {
+        'bottom': -0.3995,
+        'shelf_lower': -0.13115,
+        'shelf_upper': 0.13155,
+        'top': 0.3995
+    }
+    return [0.8, 0.1, 0.58 + surface_translations[shelf_name]]
+
+def Calc_p_WQ(iiwa_q):
+    iiwa_context = plant.CreateDefaultContext()
+    plant.SetPositions(iiwa_context, iiwa_q)
+
+    X_WG = plant.CalcRelativeTransform(
+        iiwa_context, frame_A=world_frame, frame_B=gripper_frame)
+    return X_WG.multiply(p_EQ)
+
+
+def MakePlanData(piecewise_polynomial):
+    return PlanData(PlanType.kJointSpacePlan, piecewise_polynomial)
+
+
+def MakeIKGuess(iiwa_q):
+    q_full = np.zeros(plant.num_positions())
+    q_full[9:9+len(iiwa_q)] = iiwa_q
+
+    return q_full
+
 def GetKukaQKnots(q_knots):
     """
     q returned by IK consists of the configuration of all bodies in a
@@ -121,6 +110,40 @@ def GetKukaQKnots(q_knots):
         q_knots_kuka[i] = plant.GetPositionsFromArray(iiwa_model, q_knot)
 
     return q_knots_kuka
+
+
+def GetHomeConfiguration(is_printing=True):
+    """
+    Returns a configuration of the MultibodyPlant in which point Q (defined by
+    global variable p_EQ) in robot EE frame is at p_WQ_home, and orientation of
+    frame Ea is R_WEa_ref.
+    """
+    # get "home" pose
+    ik_scene = inverse_kinematics.InverseKinematics(plant)
+
+    theta_bound = 0.005 * np.pi # 0.9 degrees
+    X_EEa = GetEndEffectorWorldAlignedFrame()
+    R_EEa = RotationMatrix(X_EEa.rotation())
+
+    ik_scene.AddOrientationConstraint(
+        frameAbar=world_frame, R_AbarA=R_WEa_ref,
+        frameBbar=gripper_frame, R_BbarB=R_EEa,
+        theta_bound=theta_bound)
+
+    p_WQ0 = p_WQ_home
+    p_WQ_lower = p_WQ0 - 0.005
+    p_WQ_upper = p_WQ0 + 0.005
+    ik_scene.AddPositionConstraint(
+        frameB=gripper_frame, p_BQ=p_EQ,
+        frameA=world_frame,
+        p_AQ_lower=p_WQ_lower, p_AQ_upper=p_WQ_upper)
+
+    prog = ik_scene.prog()
+    prog.SetInitialGuess(ik_scene.q(), np.zeros(plant.num_positions()))
+    result = prog.Solve()
+    if is_printing:
+        print result
+    return prog.GetSolution(ik_scene.q())
 
 
 def InverseKinPointwise(p_WQ_start, p_WQ_end,
@@ -210,40 +233,27 @@ def InverseKinPointwise(p_WQ_start, p_WQ_end,
     return qtraj, q_knots
 
 
-def GetHomeConfiguration(is_printing=True):
-    """
-    Returns a configuration of the MultibodyPlant in which point Q (defined by
-    global variable p_EQ) in robot EE frame is at p_WQ_home, and orientation of
-    frame Ea is R_WEa_ref.
-    """
-    # get "home" pose
-    ik_scene = inverse_kinematics.InverseKinematics(plant)
-
-    theta_bound = 0.005 * np.pi # 0.9 degrees
-    X_EEa = GetEndEffectorWorldAlignedFrame()
-    R_EEa = RotationMatrix(X_EEa.rotation())
-
-    ik_scene.AddOrientationConstraint(
-        frameAbar=world_frame, R_AbarA=R_WEa_ref,
-        frameBbar=gripper_frame, R_BbarB=R_EEa,
-        theta_bound=theta_bound)
-
-    p_WQ0 = p_WQ_home
-    p_WQ_lower = p_WQ0 - 0.005
-    p_WQ_upper = p_WQ0 + 0.005
-    ik_scene.AddPositionConstraint(
-        frameB=gripper_frame, p_BQ=p_EQ,
-        frameA=world_frame,
-        p_AQ_lower=p_WQ_lower, p_AQ_upper=p_WQ_upper)
-
-    prog = ik_scene.prog()
-    prog.SetInitialGuess(ik_scene.q(), np.zeros(plant.num_positions()))
-    result = prog.Solve()
-    if is_printing:
-        print result
-    return prog.GetSolution(ik_scene.q())
+def ConnectPointsWithCubicPolynomial(x_start, x_end, duration):
+    # x_start and x_end can be 3d task space arrays or 7d joint space arrays
+    t_knots = [0, duration / 2, duration]
+    n = len(x_start)
+    assert n == len(x_end)
+    x_knots = np.zeros((3, n))
+    x_knots[0] = x_start
+    x_knots[2] = x_end
+    x_knots[1] = (x_knots[0] + x_knots[2]) / 2
+    return  PiecewisePolynomial.Cubic(
+        t_knots, x_knots.T, np.zeros(n), np.zeros(n))
 
 
+def MakeZeroOrderHold(iiwa_q, duration=1):
+    q_knots = np.zeros((2, 7))
+    q_knots[0] = iiwa_q
+    return MakePlanData(
+        PiecewisePolynomial.ZeroOrderHold([0, duration], q_knots.T))
+
+
+###### Arm interpolation functions ######
 def InterpolateStraightLine(p_WQ_start, p_WQ_end, num_knot_points, i):
     return (p_WQ_end - p_WQ_start) / num_knot_points * (i + 1) + p_WQ_start
 
@@ -254,6 +264,7 @@ def InterpolateArc(angle_start, angle_end, num_knot_points, i):
     return p_WC_left_hinge + [-radius * np.sin(theta), -radius * np.cos(theta), 0]
 
 
+###### End-effector interpolation functions ######
 def ReturnConstantOrientation(angle_start, angle_end, num_knot_points, i):
     assert i <= num_knot_points
     return RollPitchYaw(0, angle_start, 0).ToRotationMatrix()
@@ -261,21 +272,21 @@ def ReturnConstantOrientation(angle_start, angle_end, num_knot_points, i):
 
 def InterpolatePitchAngle(pitch_start, pitch_end, num_knot_points, i):
     assert i <= num_knot_points
-    # pitch_start = np.pi / 180 * 135
-    # pitch_end = np.pi / 180 * 90
     pitch_angle = pitch_start + (pitch_end - pitch_start) / num_knot_points * i
     return RollPitchYaw(0, pitch_angle, 0).ToRotationMatrix()
 
 
-# angle_start = theta0_hinge
-# angle_end = handle_angle_end
 def InterpolateYawAngle(yaw_start, yaw_end, num_knot_points, i):
+    # angle_start = theta0_hinge
+    # angle_end = handle_angle_end
     assert i <= num_knot_points
     yaw_angle = 0. + (yaw_end - yaw_start) / num_knot_points * i
     return RollPitchYaw(0, np.pi / 2, -yaw_angle).ToRotationMatrix()
 
 
-def GenerateApproachHandlePlans(InterpolateOrientation, is_printing=True):
+###### Plans for opening doors ######
+def GenerateApproachHandlePlans(InterpolateOrientation, handle_angle_end,
+                                is_printing=True):
     """
     Returns a list of Plans that move the end effector from its home position
     to the left door handle. Also returns the corresponding gripper setpoints
@@ -284,10 +295,14 @@ def GenerateApproachHandlePlans(InterpolateOrientation, is_printing=True):
     @param InterpolateOrientation: a function passed to InverseKinPointwise,
         which returns the desired end effector orientation along the trajectory.
     """
-    q_home_full = GetHomeConfiguration(is_printing)
+    q_start = np.array([0, 0, 0, -1.75, 0, 1.0, 0])
+    q_home_full = GetHomeConfiguration(is_printing=False)
+    q_home_kuka = GetKukaQKnots(q_home_full)
+    base_plan_traj = ConnectPointsWithCubicPolynomial(
+        q_start, q_home_kuka.flatten(), 2)
 
     # Generating trajectories
-    num_knot_points = 10
+    num_knot_points = 15
 
     # move to grasp left door handle
     p_WQ_start = p_WQ_home
@@ -303,22 +318,36 @@ def GenerateApproachHandlePlans(InterpolateOrientation, is_printing=True):
         is_printing=is_printing)
 
     # close gripper
-    q_knots = np.zeros((2, 7))
-    q_knots[0] = qtraj_move_to_handle.value(qtraj_move_to_handle.end_time()).squeeze()
-    qtraj_close_gripper = PiecewisePolynomial.ZeroOrderHold([0, 1], q_knots.T)
+    qtraj_close_gripper = MakeZeroOrderHold(
+        qtraj_move_to_handle.value(qtraj_move_to_handle.end_time()).squeeze(),
+        1)
 
-    q_traj_list = [qtraj_move_to_handle,
-                   qtraj_close_gripper,]
+    # open the door
+    angle_start = theta0_hinge
+    angle_end = handle_angle_end
+
+    qtraj_pull_handle, q_knots_full = InverseKinPointwise(
+        angle_start, angle_end, angle_start, angle_end,
+        duration=5.0, num_knot_points=20,
+        q_initial_guess=q_knots_full[-1],
+        InterpolatePosition=InterpolateArc,
+        InterpolateOrientation=InterpolateYawAngle,
+        position_tolerance=0.002,
+        theta_bound=np.pi/180*5,
+        is_printing=is_printing)
+
+
+    q_traj_list = [base_plan_traj,
+                   qtraj_move_to_handle,
+                   qtraj_close_gripper,
+                   qtraj_pull_handle]
 
     plan_list = []
     for q_traj in q_traj_list:
-        plan_list.append(JointSpacePlan(q_traj))
+        plan_list.append(MakePlanData(q_traj))
 
-    gripper_setpoint_list = [0.02, 0.005] # robot
+    gripper_setpoint_list = [0.02, 0.02, 0.005, 0.005] # robot
 
     # initial guess for the next IK
     q_final_full = q_knots_full[-1]
     return plan_list, gripper_setpoint_list, q_final_full
-
-
-# TODO(kmuhlrad): make some more general functions

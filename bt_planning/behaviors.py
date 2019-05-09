@@ -2,7 +2,14 @@ from py_trees.behaviour import Behaviour
 from py_trees.common import Status
 from py_trees.blackboard import Blackboard
 
-# from planning import GenerateApproachHandlePlans, InterpolateYawAngle
+from planning import (
+    GenerateApproachHandlePlans, InterpolateYawAngle, InverseKinPointwise,
+    InterpolateStraightLine, ReturnConstantOrientation, MakePlanData,
+    GetShelfPose, MakeZeroOrderHold, GetKukaQKnots, GRIPPER_OPEN,
+    GRIPPER_CLOSED)
+
+import numpy as np
+
 ########################## Conditions ##########################
 
 
@@ -93,10 +100,9 @@ class DoorOpen(Behaviour):
         self.feedback_message = "{} is not open.".format(self.door)
         return Status.FAILURE
 
-########################## Actions ##########################
+########################## Light Actions ##########################
 
 
-# TODO(kmuhlrad): finish implementations of things
 class Pick(Behaviour):
     def __init__(self, obj, name="Pick"):
         """
@@ -116,23 +122,8 @@ class Pick(Behaviour):
         self.counter = 0
 
     def update(self):
-        # TODO(kmuhlrad): figure this out
-
-        # if not holding object:
-        #   set robot_moving to True
-        #   return RUNNING
-
-        # if some error occurs, return FAILURE
-
-        # if holding object:
-        #   set conditions below
-        #   return SUCCESS
-
-        # the actual check should be if the robot finished running the
-        # trajectory
         if self.counter < 1:
             self.blackboard.set("robot_moving", True)
-            # TODO(kmuhlrad): replace with actually picking up object
             self.blackboard.set("robot_holding", None)
             self.counter += 1
             return Status.RUNNING
@@ -166,23 +157,8 @@ class Place(Behaviour):
         self.counter = 0
 
     def update(self):
-        # TODO(kmuhlrad): figure this out
-
-        # if holding object:
-        #   set robot_moving to True
-        #   return RUNNING
-
-        # if some error occurs, return FAILURE
-
-        # if not holding object:
-        #   set conditions below
-        #   return SUCCESS
-
-        # the actual check should be if the robot finished running the
-        # trajectory
         if self.counter < 1:
             self.blackboard.set("robot_moving", True)
-            # TODO(kmuhlrad): replace with actually placing object
             self.blackboard.set("robot_holding", self.obj)
             self.counter += 1
             return Status.RUNNING
@@ -214,24 +190,8 @@ class OpenDoor(Behaviour):
         self.counter = 0
 
     def update(self):
-        # TODO(kmuhlrad): figure this out
-
-        # if the door is not open:
-        #   set robot_moving to True
-        #   set gripper_empty to False
-        #   return RUNNING
-
-        # if some error occurs, return FAILURE
-
-        # if the door is open:
-        #   set the conditions below
-        #   return SUCCESS
-
-        # the actual check should be if the robot finished running the
-        # trajectory
         if self.counter < 1:
             self.blackboard.set("robot_moving", True)
-            # TODO(kmuhlrad): replace with actually opening the door
             self.blackboard.set("robot_holding", self.door)
             self.counter += 1
             return Status.RUNNING
@@ -246,121 +206,214 @@ class OpenDoor(Behaviour):
 ########################## Drake Actions ##########################
 
 
-# class PickDrake(Behaviour):
-#     def __init__(self, obj, name="Pick"):
-#         """
-#         Pick up the specified object. When the robot finishes and is
-#         holding the object, the node returns SUCCESS. While picking up the
-#         object, the node returns RUNNING. If the robot is unable to pick up the
-#         object, it will stop and the node will return FAILURE.
+class PickDrake(Behaviour):
+    def __init__(self, obj, name="Pick"):
+        """
+        Pick up the specified object. When the robot finishes and is
+        holding the object, the node returns SUCCESS. While picking up the
+        object, the node returns RUNNING. If the robot is unable to pick up the
+        object, it will stop and the node will return FAILURE.
 
-#         @param obj str. The name of the object to pick, such as "soup".
-#         @param name str. The name of the BT node.
-#         """
-#         super(PickDrake, self).__init__(name)
-#         self.blackboard = Blackboard()
-#         self.obj = obj
+        @param obj str. The name of the object to pick, such as "soup".
+        @param name str. The name of the BT node.
+        """
+        super(PickDrake, self).__init__(name)
+        self.blackboard = Blackboard()
+        self.obj = obj
 
-#     def initialise(self):
-#         self.sent = False
+    def initialise(self):
+        self.sent = False
+        self.plans = []
+        self.gripper_setpoints = []
+        self.blackboard.set("sent_new_plan", False)
 
-#     def update(self):
-#         if (self.blackboard.get("robot_holding") == self.obj
-#                 and not self.blackboard.get("robot_moving")):
-#             self.feedback_message = "Successfully picked up {}".format(
-#                 self.obj)
-#             return Status.SUCCESS
+    def update(self):
+        if (self.blackboard.get("robot_holding") == self.obj
+                and not self.blackboard.get("robot_moving")):
+            self.feedback_message = "Successfully picked up {}".format(
+                self.obj)
+            return Status.SUCCESS
 
-#         if not self.blackboard.get("robot_moving"):
-#             if not self.sent:
-#                 # TODO(kmuhlrad): plan stuff
-#                 self.feedback_message = "Sent plan to pick up {}".format(
-#                     self.obj)
-#                 self.sent = True
-#                 return Status.RUNNING
-#             if not self.blackboard.get("robot_holding") == self.obj:
-#                 self.feedback_message = "Could not pick up {}".format(self.obj)
-#                 return Status.FAILURE
+        if not self.blackboard.get("robot_moving"):
+            if not self.sent:
+                X_WObj = self.blackboard.get("{}_pose".format(self.obj))
+                p_WQ_end = X_WObj.multiply(np.array([0, 0, 0.1]))
+                angle_start = np.pi * 135 / 180.
 
-#         return Status.RUNNING
+                qtraj, q_knots = InverseKinPointwise(
+                    self.blackboard.get("p_WQ"), p_WQ_end, angle_start,
+                    angle_start, 5.0, 15,
+                    q_initial_guess=self.blackboard.get("prev_q_full"),
+                    InterpolatePosition=InterpolateStraightLine,
+                    InterpolateOrientation=ReturnConstantOrientation,
+                    is_printing=True)
 
+                q_knots_kuka = GetKukaQKnots(q_knots[-1])
+                self.plans = [MakePlanData(qtraj), MakeZeroOrderHold(q_knots_kuka)]
+                self.gripper_setpoints = [self.blackboard.get("gripper_setpoint"), GRIPPER_OPEN]
 
-# class PlaceDrake(Behaviour):
-#     def __init__(self, obj, surface, name="Place"):
-#         """
-#         Place up the specified object on the given surface. When the robot
-#         finishes and is no longer holding the object, the node returns SUCCESS.
-#         While placing the object, the node returns RUNNING. If the robot is
-#         unable to place the object, it will stop and the node will return
-#         FAILURE.
+                self.blackboard.set("prev_q_full", q_knots[-1])
+                self.blackboard.set("next_plan_data", self.plans.pop(0))
+                self.blackboard.set("gripper_setpoint", self.gripper_setpoints.pop(0))
+                self.blackboard.set("sent_new_plan", True)
 
-#         @param obj str. The name of the object to place, such as "soup".
-#         @param surface str. The surface on which to place the object such as
-#             "shelf_lower".
-#         @param name str. The name of the BT node.
-#         """
-#         super(PlaceDrake, self).__init__(name)
-#         self.blackboard = Blackboard()
-#         self.obj = obj
-#         self.surface = surface
+                self.sent = True
+                self.feedback_message = "Sent plan to pick up {}".format(
+                    self.obj)
+                return Status.RUNNING
+            elif len(self.plans):
+                self.blackboard.set("next_plan_data", self.plans.pop(0))
+                self.blackboard.set("gripper_setpoint", self.gripper_setpoints.pop(0))
+                self.blackboard.set("sent_new_plan", True)
 
-#     def initialise(self):
-#         self.sent = False
+                self.feedback_message = "Sent the next plan to pick up {}".format(self.obj)
+                return Status.RUNNING
+            elif not self.blackboard.get("robot_holding") == self.obj:
+                self.blackboard.set("sent_new_plan", False)
+                self.feedback_message = "Could not pick up {}".format(self.obj)
+                return Status.FAILURE
 
-#     def update(self):
-#         if (self.blackboard.get("{}_on".format(self.obj)) == self.surface
-#                 and not self.blackboard.get("robot_moving")):
-#             return Status.SUCCESS
-
-#         if not self.blackboard.get("robot_moving"):
-#             if not self.sent:
-#                 # TODO(kmuhlrad): plan stuff
-#                 self.feedback_message = "Sent plan to place {} on {}".format(
-#                     self.obj, self.surface)
-#                 self.sent = True
-#                 return Status.RUNNING
-#             if not self.blackboard.get("{}_on".format(self.obj)) == self.surface:
-#                 self.feedback_message = "Could not place {} on {}".format(
-#                     self.obj, self.surface)
-#                 return Status.FAILURE
-
-#         return Status.RUNNING
+        self.blackboard.set("sent_new_plan", False)
+        return Status.RUNNING
 
 
-# class OpenDoorDrake(Behaviour):
-#     def __init__(self, door, name="OpenDoor"):
-#         """
-#         Open the specified door. When the robot finishes opening the door, the
-#         node returns SUCCESS. While opening the door, the node returns RUNNING.
-#         If the robot is unable to open the door, it will stop and the node will
-#         return FAILURE.
+class PlaceDrake(Behaviour):
+    def __init__(self, obj, surface, name="Place"):
+        """
+        Place up the specified object on the given surface. When the robot
+        finishes and is no longer holding the object, the node returns SUCCESS.
+        While placing the object, the node returns RUNNING. If the robot is
+        unable to place the object, it will stop and the node will return
+        FAILURE.
 
-#         @param door str. The name of the door to open, such as "left_door".
-#         @param name str. The name of the BT node.
-#         """
-#         super(OpenDoorDrake, self).__init__(name)
-#         self.blackboard = Blackboard()
-#         self.door = door
+        @param obj str. The name of the object to place, such as "soup".
+        @param surface str. The surface on which to place the object such as
+            "shelf_lower".
+        @param name str. The name of the BT node.
+        """
+        super(PlaceDrake, self).__init__(name)
+        self.blackboard = Blackboard()
+        self.obj = obj
+        self.surface = surface
 
-#     def initialise(self):
-#         self.sent = False
+    def initialise(self):
+        self.sent = False
+        self.plans = []
+        self.gripper_setpoints = []
+        self.blackboard.set("sent_new_plan", False)
 
-#     def update(self):
-#         if (self.blackboard.get("{}_open".format(self.door))
-#                 and not self.blackboard.get("robot_moving")):
-#             return Status.SUCCESS
+    def update(self):
+        if (self.blackboard.get("{}_on".format(self.obj)) == self.surface
+                and not self.blackboard.get("robot_moving")):
+            return Status.SUCCESS
 
-#         if not self.blackboard.get("robot_moving"):
-#             if not self.sent:
-#                 plan_list, gripper_setpoint_list, q_final_full = GenerateApproachHandlePlans(InterpolateYawAngle)
-#                 self.blackboard.set("plan_list", plan_list)
-#                 self.blackboard.set("gripper_setpoint_list", gripper_setpoint_list)
-#                 self.feedback_message = "Sent plan to open {}".format(
-#                     self.door)
-#                 self.sent = True
-#                 return Status.RUNNING
-#             if not self.blackboard.get("{}_open".format(self.door)):
-#                 self.feedback_message = "Could not open {}".format(self.door)
-#                 return Status.FAILURE
+        if not self.blackboard.get("robot_moving"):
+            if not self.sent:
+                p_WQ_end = GetShelfPose(self.surface)
+                angle_start = np.pi * 135 / 180.
 
-#         return Status.RUNNING
+                qtraj, q_knots = InverseKinPointwise(
+                    self.blackboard.get("p_WQ"), p_WQ_end, angle_start,
+                    angle_start, 5.0, 15,
+                    q_initial_guess=self.blackboard.get("prev_q_full"),
+                    InterpolatePosition=InterpolateStraightLine,
+                    InterpolateOrientation=ReturnConstantOrientation,
+                    is_printing=True)
+
+                q_knots_kuka = GetKukaQKnots(q_knots[-1])
+                self.plans = [MakePlanData(qtraj),
+                              MakeZeroOrderHold(q_knots_kuka)]
+                self.gripper_setpoints = [
+                    self.blackboard.get("gripper_setpoint"), GRIPPER_CLOSED]
+
+                self.blackboard.set("prev_q_full", q_knots[-1])
+                self.blackboard.set("next_plan_data", self.plans.pop(0))
+                self.blackboard.set(
+                    "gripper_setpoint", self.gripper_setpoints.pop(0))
+                self.blackboard.set("sent_new_plan", True)
+
+                self.sent = True
+                self.feedback_message = "Sent plan to place {} on {}".format(
+                    self.obj, self.surface)
+                return Status.RUNNING
+            elif len(self.plans):
+                self.blackboard.set("next_plan_data", self.plans.pop(0))
+                self.blackboard.set(
+                    "gripper_setpoint", self.gripper_setpoints.pop(0))
+                self.blackboard.set("sent_new_plan", True)
+
+                self.feedback_message = (
+                    "Sent the next plan to place {} on {}".format(
+                        self.obj, self.obj))
+                return Status.RUNNING
+            elif not self.blackboard.get("{}_on".format(self.obj)) == self.surface:
+                self.blackboard.set("sent_new_plan", False)
+                self.feedback_message = "Could not place {} on {}".format(
+                    self.obj, self.surface)
+                return Status.FAILURE
+
+        self.blackboard.set("sent_new_plan", False)
+        return Status.RUNNING
+
+
+class OpenDoorDrake(Behaviour):
+    def __init__(self, door, name="OpenDoor"):
+        """
+        Open the specified door. When the robot finishes opening the door, the
+        node returns SUCCESS. While opening the door, the node returns RUNNING.
+        If the robot is unable to open the door, it will stop and the node will
+        return FAILURE.
+
+        @param door str. The name of the door to open, such as "left_door".
+        @param name str. The name of the BT node.
+        """
+        super(OpenDoorDrake, self).__init__(name)
+        self.blackboard = Blackboard()
+        self.door = door
+
+    def initialise(self):
+        self.sent = False
+        self.plans = []
+        self.gripper_setpoints = []
+        self.blackboard.set("sent_new_plan", False)
+
+    def update(self):
+        if (self.blackboard.get("{}_open".format(self.door))
+                and not self.blackboard.get("robot_moving")):
+            return Status.SUCCESS
+
+        if not self.blackboard.get("robot_moving"):
+            if not self.sent:
+                plan_data_list, gripper_setpoint_list, q_final_full = (
+                    GenerateApproachHandlePlans(
+                        ReturnConstantOrientation, np.pi/4, is_printing=True))
+
+                self.plans = plan_data_list
+                self.gripper_setpoints = gripper_setpoint_list
+
+                self.blackboard.set("prev_q_full", q_final_full[-1])
+                self.blackboard.set("next_plan_data", self.plans.pop(0))
+                self.blackboard.set(
+                    "gripper_setpoint", self.gripper_setpoints.pop(0))
+                self.blackboard.set("sent_new_plan", True)
+
+                self.feedback_message = "Sent plan to open {}".format(
+                    self.door)
+                self.sent = True
+                return Status.RUNNING
+            elif len(self.plans):
+                self.blackboard.set("next_plan_data", self.plans.pop(0))
+                self.blackboard.set(
+                    "gripper_setpoint", self.gripper_setpoints.pop(0))
+                self.blackboard.set("sent_new_plan", True)
+
+                self.feedback_message = (
+                    "Sent the next plan to open {}".format(self.door))
+                return Status.RUNNING
+            elif not self.blackboard.get("{}_open".format(self.door)):
+                self.blackboard.set("sent_new_plan", False)
+                self.feedback_message = "Could not open {}".format(self.door)
+                return Status.FAILURE
+
+        self.blackboard.set("sent_new_plan", False)
+        return Status.RUNNING
