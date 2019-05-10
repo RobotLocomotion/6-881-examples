@@ -25,7 +25,7 @@ from py_trees.common import Status
 from py_trees.composites import Selector, Sequence
 from py_trees.meta import inverter
 
-from planning import Calc_p_WQ, MakeIKGuess
+from planning import Calc_p_WQ, MakeIKGuess, MakeReturnHomePlan
 
 class BehaviorTree(LeafSystem):
 
@@ -81,23 +81,25 @@ class BehaviorTree(LeafSystem):
         self.status_output_port = self.DeclareVectorOutputPort(
             "status", BasicVector(1), self.DoCalcRootStatus)
 
+        q_start = np.array([0, 0, 0, -1.75, 0, 1.0, 0])
         self.DeclareAbstractOutputPort("plan_data",
                                        lambda: AbstractValue.Make(
-                                           PlanData(PlanType.kEmptyPlan)),
+                                           MakeReturnHomePlan(q_start)),
                                        self.DoCalcNextPlan)
 
         self.gripper_setpoint_output_port = self.DeclareVectorOutputPort(
             "gripper_setpoint", BasicVector(1), self.CalcGripperSetpoint,
             prerequisites_of_calc=set([self.all_state_ticket()]))
 
-        self.DeclarePeriodicPublish(1.0, 0.0)
+        self.DeclarePeriodicPublish(1./50, 1.0)
 
     def _ParsePoses(self, pose_bundle):
         pose_dict = {}
 
         for i in range(pose_bundle.get_num_poses()):
             if pose_bundle.get_name(i):
-                pose_dict[pose_bundle.get_name(i).split("::")[-1]] = pose_bundle.get_pose(i)
+                pose_dict[pose_bundle.get_name(i).split("::")[-1]] = (
+                    pose_bundle.get_pose(i))
 
         return pose_dict
 
@@ -174,7 +176,6 @@ class BehaviorTree(LeafSystem):
         holding = False
         for obj in self.object_names:
             if 0.005 < wsg_q.GetAtIndex(0) < 0.1 and wsg_F.GetAtIndex(0) > 3:
-            # if 0.005 < wsg_q < 0.1 and wsg_F.GetAtIndex(0) > 3:
                 try:
                     obj_dim = obj_dims[obj]
                     obj_pose = pose_dict["base_link_{}".format(obj)]
@@ -195,6 +196,7 @@ class BehaviorTree(LeafSystem):
 
 
     def DoPublish(self, context, events):
+        LeafSystem.DoPublish(self, context, events)
         self.TickOnce(context)
 
     def TickOnce(self, context):
@@ -207,17 +209,18 @@ class BehaviorTree(LeafSystem):
             context, self.iiwa_velocity_input_port.get_index()).get_value()
         wsg_q = self.EvalAbstractInput(
             context, self.gripper_position_input_port.get_index()).get_value()
-        # wsg_q = self.blackboard.get("gripper_setpoint")
         wsg_F = self.EvalAbstractInput(
             context, self.gripper_force_input_port.get_index()).get_value()
 
-        self.UpdateBlackboard(self._ParsePoses(pose_bundle), iiwa_q, iiwa_v, wsg_q, wsg_F)
+        self.UpdateBlackboard(
+            self._ParsePoses(pose_bundle), iiwa_q, iiwa_v, wsg_q, wsg_F)
 
-        print("\n--------- Tick {0} ---------\n".format(self.tick_counter))
+        # print("\n--------- Tick {0} ---------\n".format(self.tick_counter))
         self.root.tick_once()
-        print("\n")
-        print("{}".format(py_trees.display.print_ascii_tree(self.root, show_status=True)))
-        print(self.blackboard)
+        # print("\n")
+        # print("{}".format(py_trees.display.print_ascii_tree(
+        #     self.root, show_status=True)))
+        # print(self.blackboard)
 
         self.tick_counter += 1
 
@@ -238,28 +241,29 @@ class BehaviorTree(LeafSystem):
         output.get_mutable_value()[0] = self.blackboard.get("gripper_setpoint")
 
 
-def make_root():
+def make_root(
+        obj_name="soup", shelf_name="shelf_lower", door_name="left_door"):
     # conditions
-    holding_soup = Holding("soup")
-    soup_on_shelf = On("soup", "shelf_lower")
-    left_door_open = DoorOpen("left_door")
+    holding_soup = Holding(obj_name)
+    soup_on_shelf = On(obj_name, shelf_name)
+    left_door_open = DoorOpen(door_name)
     moving_inverter = inverter(RobotMoving)("MovingInverter")
-    gripper_empty = inverter(Holding)("soup", "GripperEmpty")
+    gripper_empty = inverter(Holding)(obj=obj_name, name="GripperEmpty")
 
     # actions
-    pick_soup = PickDrake("soup")
-    place_soup = PlaceDrake("soup", "shelf_lower")
-    open_left_door = OpenDoorDrake("left_door")
+    pick_soup = PickDrake(obj_name)
+    place_soup = PlaceDrake(obj_name, shelf_name)
+    open_left_door = OpenDoorDrake(door_name)
 
     root = Selector(name="Root")
 
-    soup_on_shelf_seq = Sequence(name="SoupOnShelfSeq")
+    soup_on_shelf_seq = Sequence(name="ObjOnShelfSeq")
 
     open_door_sel = Selector(name="OpenDoorSel")
     open_door_seq = Sequence(name="OpenDoorSeq")
 
-    pick_soup_sel = Selector(name="PickSoupSel")
-    pick_soup_seq = Sequence(name="PickSoupSeq")
+    pick_soup_sel = Selector(name="PickObjSel")
+    pick_soup_seq = Sequence(name="PickObjSeq")
 
     soup_on_shelf_seq.add_children([open_door_sel, pick_soup_sel, place_soup])
     open_door_sel.add_children([left_door_open, open_door_seq])
@@ -278,7 +282,7 @@ def open_door_test():
     # conditions
     left_door_open = DoorOpen("left_door")
     moving_inverter = inverter(RobotMoving)("MovingInverter")
-    gripper_empty = inverter(Holding)("soup", "GripperEmpty")
+    gripper_empty = inverter(Holding)("soup", name="GripperEmpty")
 
     # actions
     open_left_door = OpenDoorDrake("left_door")
@@ -294,11 +298,12 @@ def open_door_test():
 
     return root
 
+
 def pick_soup_test():
     # conditions
     holding_soup = Holding("soup")
     moving_inverter = inverter(RobotMoving)("MovingInverter")
-    gripper_empty = inverter(Holding)("soup", "GripperEmpty")
+    gripper_empty = inverter(Holding)("soup", name="GripperEmpty")
 
     # actions
     pick_soup = PickDrake("soup")
@@ -314,13 +319,14 @@ def pick_soup_test():
 
     return root
 
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     MeshcatVisualizer.add_argparse_argument(parser)
     args = parser.parse_args()
 
-    py_trees.logging.level = py_trees.logging.Level.DEBUG
-    root = pick_soup_test()
+    # py_trees.logging.level = py_trees.logging.Level.DEBUG
+    root = make_root(obj_name="gelatin")
 
     # Initialize plan list to empty
     blackboard = Blackboard()
@@ -334,13 +340,20 @@ def main():
     # Create the ManipulationStation.
     station = builder.AddSystem(ManipulationStation())
     station.SetupDefaultStation()
-    soup_file = "drake/manipulation/models/ycb/sdf/005_tomato_soup_can.sdf"
+    # soup_file = "drake/manipulation/models/ycb/sdf/005_tomato_soup_can.sdf"
+    soup_file = "drake/manipulation/models/ycb/sdf/009_gelatin_box.sdf"
 
     # Pose from PDDL version
+    # X_WSoup = RigidTransform(
+    #     RotationMatrix(np.array([[-0.52222752, -0.0976978,  -0.84719157],
+    #                              [ 0.85173699, -0.01002188, -0.5238737 ],
+    #                              [ 0.04269086, -0.99516567,  0.08844653 ]])),
+    #     np.array([0.53777627, -0.17532787, 0.03030285]))
+
     X_WSoup = RigidTransform(
-        RotationMatrix(np.array([[-0.52222752, -0.0976978,  -0.84719157],
-                                 [ 0.85173699, -0.01002188, -0.5238737 ],
-                                 [ 0.04269086, -0.99516567,  0.08844653 ]])),
+        RotationMatrix(np.array([[1, 0,  0],
+                                 [ 0, 0, -1 ],
+                                 [ 0, 1,  0 ]])),
         np.array([0.53777627, -0.17532787, 0.03030285]))
 
     # on shelf_lower: [0.8, 0., 0.45]
@@ -349,7 +362,7 @@ def main():
     #     RotationMatrix(np.array([[-0.52222752, -0.0976978,  -0.84719157],
     #                              [ 0.85173699, -0.01002188, -0.5238737 ],
     #                              [ 0.04269086, -0.99516567,  0.08844653 ]])),
-    #     np.array([0.45, 0, 0.1]))
+    #     np.array([0.5, 0, 0.38]))
 
 
     station.AddManipulandFromFile(soup_file, X_WSoup)
@@ -361,7 +374,7 @@ def main():
     builder.Connect(station.GetOutputPort("pose_bundle"),
                     meshcat.get_input_port(0))
 
-    object_names = ["soup"]
+    object_names = ["gelatin"] #["soup"]
     door_names = ["left_door", "right_door"]
     surface_names = ["shelf_lower"]
 
@@ -409,7 +422,6 @@ def main():
     q_start = np.array([0, 0, 0, -1.75, 0, 1.0, 0])
     station.SetIiwaPosition(station_context, q_start)
 
-    print MakeIKGuess(q_start)
     blackboard.set("prev_q_full", MakeIKGuess(q_start))
 
     station_context.FixInputPort(station.GetInputPort(
@@ -421,6 +433,12 @@ def main():
     hinge_joint.set_angle(
         context=station.GetMutableSubsystemContext(
             station.get_multibody_plant(), station_context), angle=-np.pi/2)
+
+    hinge_joint = station.get_multibody_plant().GetJointByName(
+        "left_door_hinge")
+    hinge_joint.set_angle(
+        context=station.GetMutableSubsystemContext(
+            station.get_multibody_plant(), station_context), angle=-np.pi/2)
     #
     # pose_bundle = station.GetOutputPort("pose_bundle").Eval(station_context)
     # for i in range(pose_bundle.get_num_poses()):
@@ -429,7 +447,7 @@ def main():
 
     simulator.set_publish_every_time_step(False)
     simulator.set_target_realtime_rate(0.5)
-    simulator.StepTo(10.0)
+    simulator.StepTo(15)
 
     bt_context = diagram.GetMutableSubsystemContext(bt, simulator.get_mutable_context())
     # print bt.GetOutputPort("status").Eval(bt_context)

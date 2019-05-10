@@ -6,7 +6,7 @@ from planning import (
     GenerateApproachHandlePlans, InterpolateYawAngle, InverseKinPointwise,
     InterpolateStraightLine, ReturnConstantOrientation, MakePlanData,
     GetShelfPose, MakeZeroOrderHold, GetKukaQKnots, GRIPPER_OPEN,
-    GRIPPER_CLOSED)
+    GRIPPER_CLOSED, MakeReturnHomePlan, p_WQ_home)
 
 import numpy as np
 
@@ -235,7 +235,9 @@ class PickDrake(Behaviour):
                 return Status.SUCCESS
             elif not self.sent:
                 X_WObj = self.blackboard.get("{}_pose".format(self.obj))
-                p_WQ_end = X_WObj.multiply(np.array([0.015, -0.03, 0.04]))
+                #p_WQ_end = X_WObj.multiply(np.array([0.015, -0.03, 0.04]))
+                # TODO(kmuhlrad): generalize this a bit more
+                p_WQ_end = X_WObj.multiply(np.array([-0.035, -0.01, 0]))
                 angle_start = np.pi * 150 / 180.
 
                 qtraj, q_knots = InverseKinPointwise(
@@ -314,22 +316,28 @@ class PlaceDrake(Behaviour):
 
         if not self.blackboard.get("robot_moving"):
             if not self.sent:
+                plan_go_home = MakeReturnHomePlan(
+                    self.blackboard.get("iiwa_q"), duration=5)
+
                 p_WQ_end = GetShelfPose(self.surface)
-                angle_start = np.pi * 135 / 180.
+                angle_start = np.pi * 150 / 180.
 
                 qtraj, q_knots = InverseKinPointwise(
-                    self.blackboard.get("p_WQ"), p_WQ_end, angle_start,
-                    angle_start, 5.0, 15,
+                    p_WQ_home, p_WQ_end, angle_start,
+                    angle_start, 10.0, 15,
                     q_initial_guess=self.blackboard.get("prev_q_full"),
                     InterpolatePosition=InterpolateStraightLine,
                     InterpolateOrientation=ReturnConstantOrientation,
                     is_printing=True)
 
                 q_knots_kuka = GetKukaQKnots(q_knots[-1])
-                self.plans = [MakePlanData(qtraj),
+                self.plans = [plan_go_home,
+                              MakePlanData(qtraj),
                               MakeZeroOrderHold(q_knots_kuka)]
                 self.gripper_setpoints = [
-                    self.blackboard.get("gripper_setpoint"), GRIPPER_CLOSED]
+                    self.blackboard.get("gripper_setpoint"),
+                    self.blackboard.get("gripper_setpoint"),
+                    GRIPPER_OPEN]
 
                 self.blackboard.set("prev_q_full", q_knots[-1])
                 self.blackboard.set("next_plan_data", self.plans.pop(0))

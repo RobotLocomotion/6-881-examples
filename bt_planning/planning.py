@@ -70,7 +70,7 @@ def GetShelfPose(shelf_name):
         'shelf_upper': 0.13155,
         'top': 0.3995
     }
-    return [0.8, 0.1, 0.58 + surface_translations[shelf_name]]
+    return [0.8, 0.1, 0.55 + surface_translations[shelf_name]]
 
 
 def MakeIKGuess(iiwa_q):
@@ -146,6 +146,19 @@ def GetHomeConfiguration(is_printing=True):
     if is_printing:
         print result
     return prog.GetSolution(ik_scene.q())
+
+
+def ConnectPointsWithCubicPolynomial(x_start, x_end, duration):
+    # x_start and x_end can be 3d task space arrays or 7d joint space arrays
+    t_knots = [0, duration / 2, duration]
+    n = len(x_start)
+    assert n == len(x_end)
+    x_knots = np.zeros((3, n))
+    x_knots[0] = x_start
+    x_knots[2] = x_end
+    x_knots[1] = (x_knots[0] + x_knots[2]) / 2
+    return PiecewisePolynomial.Cubic(
+        t_knots, x_knots.T, np.zeros(n), np.zeros(n))
 
 
 def InverseKinPointwise(p_WQ_start, p_WQ_end,
@@ -235,25 +248,20 @@ def InverseKinPointwise(p_WQ_start, p_WQ_end,
     return qtraj, q_knots
 
 
-def ConnectPointsWithCubicPolynomial(x_start, x_end, duration):
-    # x_start and x_end can be 3d task space arrays or 7d joint space arrays
-    t_knots = [0, duration / 2, duration]
-    n = len(x_start)
-    assert n == len(x_end)
-    x_knots = np.zeros((3, n))
-    x_knots[0] = x_start
-    x_knots[2] = x_end
-    x_knots[1] = (x_knots[0] + x_knots[2]) / 2
-    return  PiecewisePolynomial.Cubic(
-        t_knots, x_knots.T, np.zeros(n), np.zeros(n))
-
-
 def MakeZeroOrderHold(iiwa_q, duration=1):
     q_knots = np.zeros((2, 7))
     q_knots[0] = iiwa_q
     return MakePlanData(
         PiecewisePolynomial.ZeroOrderHold([0, duration], q_knots.T))
 
+
+def MakeReturnHomePlan(iiwa_q, duration=2):
+    q_home = GetHomeConfiguration()
+    q_kuka_home = GetKukaQKnots(q_home)
+    q_traj = ConnectPointsWithCubicPolynomial(
+        iiwa_q, q_kuka_home.squeeze(), duration)
+
+    return MakePlanData(q_traj)
 
 ###### Arm interpolation functions ######
 def InterpolateStraightLine(p_WQ_start, p_WQ_end, num_knot_points, i):
