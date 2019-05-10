@@ -27,9 +27,6 @@ from py_trees.meta import inverter
 
 from planning import Calc_p_WQ, MakeIKGuess
 
-from manipulation_station_plan_runner import ManipStationPlanRunner
-import time
-
 class BehaviorTree(LeafSystem):
 
     def __init__(self, root, object_names, door_names, surface_names):
@@ -73,9 +70,9 @@ class BehaviorTree(LeafSystem):
             self.DeclareVectorInputPort(
                 "iiwa_velocity", BasicVector(7))
 
-        # self.gripper_position_input_port = \
-        #     self.DeclareVectorInputPort(
-        #         "gripper_position", BasicVector(2))
+        self.gripper_position_input_port = \
+            self.DeclareVectorInputPort(
+                "gripper_position", BasicVector(2))
 
         self.gripper_force_input_port = \
             self.DeclareVectorInputPort(
@@ -121,12 +118,13 @@ class BehaviorTree(LeafSystem):
         # iiwa_q
         self.blackboard.set("iiwa_q", iiwa_q.get_value())
         self.blackboard.set("p_WQ", Calc_p_WQ(iiwa_q.get_value()))
+        self.blackboard.set("prev_q_full", MakeIKGuess(iiwa_q.get_value()))
 
         # robot_moving
-        if np.all(iiwa_v.get_value() < 0.001):
-            self.blackboard.set("robot_moving", False)
-        else:
+        if np.any(iiwa_v.get_value() > 0.001) or wsg_q.GetAtIndex(1) > 0.001:
             self.blackboard.set("robot_moving", True)
+        else:
+            self.blackboard.set("robot_moving", False)
 
         # TODO(kmuhlrad): make less specific
         # obj_on, surface
@@ -175,8 +173,8 @@ class BehaviorTree(LeafSystem):
         gripper_dim = 0.0725
         holding = False
         for obj in self.object_names:
-            #if 0.005 < wsg_q.GetAtIndex(0) < 0.1 and wsg_F.GetAtIndex(0) > 3:
-            if 0.005 < wsg_q < 0.1 and wsg_F.GetAtIndex(0) > 3:
+            if 0.005 < wsg_q.GetAtIndex(0) < 0.1 and wsg_F.GetAtIndex(0) > 3:
+            # if 0.005 < wsg_q < 0.1 and wsg_F.GetAtIndex(0) > 3:
                 try:
                     obj_dim = obj_dims[obj]
                     obj_pose = pose_dict["base_link_{}".format(obj)]
@@ -207,9 +205,9 @@ class BehaviorTree(LeafSystem):
             context, self.iiwa_position_input_port.get_index()).get_value()
         iiwa_v = self.EvalAbstractInput(
             context, self.iiwa_velocity_input_port.get_index()).get_value()
-        # wsg_q = self.EvalAbstractInput(
-        #     context, self.gripper_position_input_port.get_index()).get_value()
-        wsg_q = self.blackboard.get("gripper_setpoint")
+        wsg_q = self.EvalAbstractInput(
+            context, self.gripper_position_input_port.get_index()).get_value()
+        # wsg_q = self.blackboard.get("gripper_setpoint")
         wsg_F = self.EvalAbstractInput(
             context, self.gripper_force_input_port.get_index()).get_value()
 
@@ -377,8 +375,8 @@ def main():
                     bt.GetInputPort("iiwa_position"))
     builder.Connect(station.GetOutputPort("iiwa_velocity_estimated"),
                     bt.GetInputPort("iiwa_velocity"))
-    # builder.Connect(station.GetOutputPort("wsg_state_measured"),
-    #                 bt.GetInputPort("gripper_position"))
+    builder.Connect(station.GetOutputPort("wsg_state_measured"),
+                    bt.GetInputPort("gripper_position"))
     builder.Connect(station.GetOutputPort("wsg_force_measured"),
                     bt.GetInputPort("gripper_force"))
 
@@ -411,9 +409,8 @@ def main():
     q_start = np.array([0, 0, 0, -1.75, 0, 1.0, 0])
     station.SetIiwaPosition(station_context, q_start)
 
+    print MakeIKGuess(q_start)
     blackboard.set("prev_q_full", MakeIKGuess(q_start))
-
-
 
     station_context.FixInputPort(station.GetInputPort(
         "wsg_force_limit").get_index(), np.array([40.0]))
@@ -431,8 +428,8 @@ def main():
     #     print pose_bundle.get_pose(i)
 
     simulator.set_publish_every_time_step(False)
-    simulator.set_target_realtime_rate(1.0)
-    simulator.StepTo(15.0)
+    simulator.set_target_realtime_rate(0.5)
+    simulator.StepTo(10.0)
 
     bt_context = diagram.GetMutableSubsystemContext(bt, simulator.get_mutable_context())
     # print bt.GetOutputPort("status").Eval(bt_context)

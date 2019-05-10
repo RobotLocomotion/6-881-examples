@@ -59,9 +59,9 @@ p_EQ = GetEndEffectorWorldAlignedFrame().multiply(np.array([0., 0., 0.090]))
 # orientation of end effector aligned frame
 R_WEa_ref = RollPitchYaw(0, np.pi / 180 * 135, 0).ToRotationMatrix()
 
-
 GRIPPER_OPEN = 0.1
 GRIPPER_CLOSED = 0.005
+
 
 def GetShelfPose(shelf_name):
     surface_translations = {
@@ -72,9 +72,17 @@ def GetShelfPose(shelf_name):
     }
     return [0.8, 0.1, 0.58 + surface_translations[shelf_name]]
 
+
+def MakeIKGuess(iiwa_q):
+    q_full = np.zeros(plant.num_positions())
+    q_full[9:9+len(iiwa_q)] = iiwa_q
+
+    return q_full
+
+
 def Calc_p_WQ(iiwa_q):
     iiwa_context = plant.CreateDefaultContext()
-    plant.SetPositions(iiwa_context, iiwa_q)
+    plant.SetPositions(iiwa_context, MakeIKGuess(iiwa_q))
 
     X_WG = plant.CalcRelativeTransform(
         iiwa_context, frame_A=world_frame, frame_B=gripper_frame)
@@ -84,12 +92,6 @@ def Calc_p_WQ(iiwa_q):
 def MakePlanData(piecewise_polynomial):
     return PlanData(PlanType.kJointSpacePlan, piecewise_polynomial)
 
-
-def MakeIKGuess(iiwa_q):
-    q_full = np.zeros(plant.num_positions())
-    q_full[9:9+len(iiwa_q)] = iiwa_q
-
-    return q_full
 
 def GetKukaQKnots(q_knots):
     """

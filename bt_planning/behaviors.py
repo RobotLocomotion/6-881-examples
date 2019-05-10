@@ -228,17 +228,15 @@ class PickDrake(Behaviour):
         self.blackboard.set("sent_new_plan", False)
 
     def update(self):
-        if (self.blackboard.get("robot_holding") == self.obj
-                and not self.blackboard.get("robot_moving")):
-            self.feedback_message = "Successfully picked up {}".format(
-                self.obj)
-            return Status.SUCCESS
-
         if not self.blackboard.get("robot_moving"):
-            if not self.sent:
+            if self.blackboard.get("robot_holding") == self.obj:
+                self.feedback_message = "Successfully picked up {}".format(
+                    self.obj)
+                return Status.SUCCESS
+            elif not self.sent:
                 X_WObj = self.blackboard.get("{}_pose".format(self.obj))
-                p_WQ_end = X_WObj.multiply(np.array([0, 0, 0.1]))
-                angle_start = np.pi * 135 / 180.
+                p_WQ_end = X_WObj.multiply(np.array([0.015, -0.03, 0.04]))
+                angle_start = np.pi * 150 / 180.
 
                 qtraj, q_knots = InverseKinPointwise(
                     self.blackboard.get("p_WQ"), p_WQ_end, angle_start,
@@ -249,12 +247,15 @@ class PickDrake(Behaviour):
                     is_printing=True)
 
                 q_knots_kuka = GetKukaQKnots(q_knots[-1])
-                self.plans = [MakePlanData(qtraj), MakeZeroOrderHold(q_knots_kuka)]
-                self.gripper_setpoints = [self.blackboard.get("gripper_setpoint"), GRIPPER_OPEN]
+                self.plans = [MakePlanData(qtraj),
+                              MakeZeroOrderHold(q_knots_kuka)]
+                self.gripper_setpoints = [
+                    self.blackboard.get("gripper_setpoint"), GRIPPER_CLOSED]
 
                 self.blackboard.set("prev_q_full", q_knots[-1])
                 self.blackboard.set("next_plan_data", self.plans.pop(0))
-                self.blackboard.set("gripper_setpoint", self.gripper_setpoints.pop(0))
+                self.blackboard.set("gripper_setpoint",
+                                    self.gripper_setpoints.pop(0))
                 self.blackboard.set("sent_new_plan", True)
 
                 self.sent = True
@@ -262,11 +263,14 @@ class PickDrake(Behaviour):
                     self.obj)
                 return Status.RUNNING
             elif len(self.plans):
-                self.blackboard.set("next_plan_data", self.plans.pop(0))
-                self.blackboard.set("gripper_setpoint", self.gripper_setpoints.pop(0))
+                self.blackboard.set("next_plan_data",
+                                    self.plans.pop(0))
+                self.blackboard.set("gripper_setpoint",
+                                    self.gripper_setpoints.pop(0))
                 self.blackboard.set("sent_new_plan", True)
 
-                self.feedback_message = "Sent the next plan to pick up {}".format(self.obj)
+                self.feedback_message = (
+                    "Sent the next plan to pick up {}".format(self.obj))
                 return Status.RUNNING
             elif not self.blackboard.get("robot_holding") == self.obj:
                 self.blackboard.set("sent_new_plan", False)
@@ -274,6 +278,7 @@ class PickDrake(Behaviour):
                 return Status.FAILURE
 
         self.blackboard.set("sent_new_plan", False)
+        self.feedback_message = "Picking up {}".format(self.obj)
         return Status.RUNNING
 
 
