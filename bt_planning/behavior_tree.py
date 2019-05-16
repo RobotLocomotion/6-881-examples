@@ -196,7 +196,7 @@ class BehaviorTree(LeafSystem):
 
 
     def DoPublish(self, context, events):
-        LeafSystem.DoPublish(self, context, events)
+        # LeafSystem.DoPublish(self, context, events)
         self.TickOnce(context)
 
     def TickOnce(self, context):
