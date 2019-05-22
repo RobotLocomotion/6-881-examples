@@ -91,7 +91,8 @@ class BehaviorTree(LeafSystem):
             "gripper_setpoint", BasicVector(1), self.CalcGripperSetpoint,
             prerequisites_of_calc=set([self.all_state_ticket()]))
 
-        self.DeclarePeriodicPublish(1./50, 1.0)
+        #self.DeclarePeriodicPublish(1./50, 1.0)
+        self.DeclarePeriodicPublish(1, 1.0)
 
     def _ParsePoses(self, pose_bundle):
         pose_dict = {}
@@ -215,12 +216,12 @@ class BehaviorTree(LeafSystem):
         self.UpdateBlackboard(
             self._ParsePoses(pose_bundle), iiwa_q, iiwa_v, wsg_q, wsg_F)
 
-        # print("\n--------- Tick {0} ---------\n".format(self.tick_counter))
+        print("\n--------- Tick {0} ---------\n".format(self.tick_counter))
         self.root.tick_once()
-        # print("\n")
-        # print("{}".format(py_trees.display.print_ascii_tree(
-        #     self.root, show_status=True)))
-        # print(self.blackboard)
+        print("\n")
+        print("{}".format(py_trees.display.print_ascii_tree(
+            self.root, show_status=True)))
+        print(self.blackboard)
 
         self.tick_counter += 1
 
@@ -299,18 +300,18 @@ def open_door_test():
     return root
 
 
-def pick_soup_test():
+def pick_test(obj_name="soup"):
     # conditions
-    holding_soup = Holding("soup")
+    holding_soup = Holding(obj_name)
     moving_inverter = inverter(RobotMoving)("MovingInverter")
-    gripper_empty = inverter(Holding)("soup", name="GripperEmpty")
+    gripper_empty = inverter(Holding)(obj_name, name="GripperEmpty")
 
     # actions
-    pick_soup = PickDrake("soup")
+    pick_soup = PickDrake(obj_name)
 
     root = Selector(name="Root")
 
-    pick_soup_seq = Sequence(name="PickSoupSeq")
+    pick_soup_seq = Sequence(name="PickObjSeq")
 
     pick_soup_seq.add_children(
         [gripper_empty, moving_inverter, pick_soup])
@@ -325,8 +326,8 @@ def main():
     MeshcatVisualizer.add_argparse_argument(parser)
     args = parser.parse_args()
 
-    # py_trees.logging.level = py_trees.logging.Level.DEBUG
-    root = make_root(obj_name="gelatin")
+    py_trees.logging.level = py_trees.logging.Level.DEBUG
+    root = pick_test(obj_name="gelatin")
 
     # Initialize plan list to empty
     blackboard = Blackboard()

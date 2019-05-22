@@ -229,15 +229,15 @@ class PickDrake(Behaviour):
 
     def update(self):
         if not self.blackboard.get("robot_moving"):
-            if self.blackboard.get("robot_holding") == self.obj:
-                self.feedback_message = "Successfully picked up {}".format(
-                    self.obj)
-                return Status.SUCCESS
-            elif not self.sent:
+            # if self.blackboard.get("robot_holding") == self.obj:
+            #     self.feedback_message = "Successfully picked up {}".format(
+            #         self.obj)
+            #     return Status.SUCCESS
+            if not self.sent:
                 X_WObj = self.blackboard.get("{}_pose".format(self.obj))
                 #p_WQ_end = X_WObj.multiply(np.array([0.015, -0.03, 0.04]))
                 # TODO(kmuhlrad): generalize this a bit more
-                p_WQ_end = X_WObj.multiply(np.array([-0.035, -0.01, 0]))
+                p_WQ_end = X_WObj.multiply(np.array([-0.035, -0.01, -0.004]))
                 angle_start = np.pi * 150 / 180.
 
                 qtraj, q_knots = InverseKinPointwise(
@@ -249,10 +249,16 @@ class PickDrake(Behaviour):
                     is_printing=True)
 
                 q_knots_kuka = GetKukaQKnots(q_knots[-1])
+
+                plan_go_home = MakeReturnHomePlan(q_knots_kuka.squeeze(), duration=3)
+
                 self.plans = [MakePlanData(qtraj),
-                              MakeZeroOrderHold(q_knots_kuka)]
+                              MakeZeroOrderHold(q_knots_kuka),
+                              plan_go_home]
                 self.gripper_setpoints = [
-                    self.blackboard.get("gripper_setpoint"), GRIPPER_CLOSED]
+                    self.blackboard.get("gripper_setpoint"),
+                    GRIPPER_CLOSED,
+                    GRIPPER_CLOSED]
 
                 self.blackboard.set("prev_q_full", q_knots[-1])
                 self.blackboard.set("next_plan_data", self.plans.pop(0))
@@ -278,6 +284,10 @@ class PickDrake(Behaviour):
                 self.blackboard.set("sent_new_plan", False)
                 self.feedback_message = "Could not pick up {}".format(self.obj)
                 return Status.FAILURE
+            else:
+                self.feedback_message = "Successfully picked up {}".format(
+                    self.obj)
+                return Status.SUCCESS
 
         self.blackboard.set("sent_new_plan", False)
         self.feedback_message = "Picking up {}".format(self.obj)
