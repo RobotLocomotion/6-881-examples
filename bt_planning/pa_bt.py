@@ -1,14 +1,20 @@
 import copy
 import time
 from collections import OrderedDict
+import pdb
+import numpy as np
 
-from behaviors import *
+from behaviors import (
+    RobotMoving, Holding, On, DoorOpen, Pick, Place, OpenDoor)
 
 import py_trees
 from py_trees.trees import BehaviourTree
 from py_trees.composites import Sequence, Selector
 from py_trees.meta import inverter
 from py_trees.visitors import VisitorBase
+from py_trees.behaviour import Behaviour
+from py_trees.common import Status
+from py_trees.blackboard import Blackboard
 
 
 class PPA:
@@ -68,7 +74,8 @@ class Action(Behaviour):
         for key in self.action.post:
             self.blackboard.set(key, self.action.post[key])
 
-        return Status.SUCCESS
+        return Status.FAILURE
+        # return Status.SUCCESS
 
 
 class ConditionBFSVisitor(VisitorBase):
@@ -90,6 +97,29 @@ class ConditionBFSVisitor(VisitorBase):
             self.failing_nodes.append(behaviour)
 
 
+class LastActionVisitor(VisitorBase):
+    def __init__(self, full=False):
+        super(LastActionVisitor, self).__init__(full=full)
+        self.last_action = None
+        self.level = 0
+
+    def initialise(self):
+        self.last_action = None
+        self.level = 0
+
+    def run(self, behaviour):
+        if type(behaviour) == Action:
+            self.last_action = behaviour
+
+
+def get_node_level(node):
+    level = 0
+    while node.parent:
+        level += 1
+        node = node.parent
+    return level
+
+
 def get_all_action_templates_for(ppa_set, failed_condition):
     '''
     Finds all actions whose postconditions satisfies the failed_condition
@@ -109,7 +139,7 @@ def get_all_action_templates_for(ppa_set, failed_condition):
     return action_templates
 
 
-def expand_tree(tree, ppa_set, failed_condition):
+def expand_tree(tree, ppa_set, failed_condition, last_action):
     '''
     The ExpandTree function of the PA-BT algorithm. 'Algorithm 2'.
 
@@ -122,17 +152,27 @@ def expand_tree(tree, ppa_set, failed_condition):
         tree: the new BehaviourTree
         tree_sel: the new subtree with a Selector node
     '''
+    conflict = False
     action_templates = get_all_action_templates_for(ppa_set, failed_condition)
     tree_sel = Selector(name=failed_condition.name + "_Selector")
     tree_sel.add_child(copy.copy(failed_condition))
     for action in action_templates:
         tree_seq = Sequence(name=action.action_name + "_Sequence")
         for key in action.pre:
+            if last_action and key in last_action.action.post:
+                if not last_action.action.post[key] == action.pre[key]:
+                    conflict = True
             tree_seq.add_child(Condition(key, action.pre[key]))
         tree_seq.add_child(Action(action))
         tree_sel.add_child(tree_seq)
+    # print "OUT OF TREE", tree_sel.parent
+    tree_sel.parent
+    # pdb.set_trace()
     tree.replace_subtree(failed_condition.id, tree_sel)
-    return tree, tree_sel
+    tree_sel.parent = failed_condition.parent
+    # print "IN TREE", tree_sel.parent
+    tree_sel.parent
+    return tree, tree_sel, conflict
 
 
 def get_condition_to_expand(tree, tree_visitor, expanded_nodes):
@@ -147,16 +187,18 @@ def get_condition_to_expand(tree, tree_visitor, expanded_nodes):
     Returns:
         the next condition to expand, or None if there aren't any
     '''
-    for condition in tree_visitor.failing_nodes:
+    # for condition in tree_visitor.failing_nodes:
+    #     print "FAILED NODE", condition.name
+    for condition in tree_visitor.failing_nodes[::-1]:
         if condition.name not in expanded_nodes:
             expanded_nodes.append(condition.name)
             return condition
     return None
 
 
-def conflict(tree):
+def conflict(last_action):
     '''
-    conflict - executing an action creates a missmatch between effects and
+    conflict - executing an action creates a mismatch between effects and
     preconditions the progress of the plan
 
     analyze conditions of new action added with effects of actions that subtree
@@ -172,15 +214,47 @@ def increase_priority(tree, subtree):
     left_most tree on a certain level, move it up a level and to left of its original
     parent.
     '''
+    
     sub = subtree
+    index_mod = 0
     while sub.parent:
         index = sub.parent.children.index(sub)
-        if index:
-            tree.insert_subtree(subtree, sub.parent.id, index - 1)
+        if index or index_mod:
+            tree.prune_subtree(subtree.id)
+            tree.insert_subtree(subtree, sub.parent.id, index + index_mod - 1)
             break
         else:
             sub = sub.parent
+            index_mod = -1
 
+
+def drop_soup(blackboard):
+    blackboard.set("robot_holding", None)
+    blackboard.set("soup_on", "table")
+
+def left_door_closed(blackboard):
+    blackboard.set("left_door_open", False)
+
+def random_event(blackboard):
+    prob = np.random.rand()
+    if prob >= 0.8:
+        print "OOPS, THE DOOR CLOSED"
+        left_door_closed(blackboard)
+    elif prob >= 0.6:
+        print "OOPS, I DROPPED THE SOUP"
+        drop_soup(blackboard)
+
+def unstack_block(blackboard):
+    blackboard.set("a_on_table", True)
+    blackboard.set("a_on", None)
+    blackboard.set("a_clear", True)
+    blackboard.set("b_clear", True)
+    blackboard.set("b_on_table", True)
+    blackboard.set("b_on", None)
+    blackboard.set("holding", False)
+    blackboard.set("arm-empty", True)
+    blackboard.set("c_on_table", True)
+    blackboard.set("c_clear", True)
 
 def pa_bt(ppa_set, goal_conditions):
     '''
@@ -191,6 +265,8 @@ def pa_bt(ppa_set, goal_conditions):
             be true in the goal state.
 
     '''
+    import time
+    start = time.time()
     root_seq = Sequence(name="Root")
 
     for condition in goal_conditions:
@@ -198,7 +274,10 @@ def pa_bt(ppa_set, goal_conditions):
 
     tree = BehaviourTree(root_seq)
     condition_bfs = ConditionBFSVisitor()
+    last_action_visitor = LastActionVisitor()
+
     tree.visitors.append(condition_bfs)
+    tree.visitors.append(last_action_visitor)
 
     # for debugging
     snapshot_visitor = py_trees.visitors.SnapshotVisitor()
@@ -208,8 +287,10 @@ def pa_bt(ppa_set, goal_conditions):
 
     expanded_nodes = []
     iteration = 1
+    door_counter = 0
     while True:
-        print "ITERATION", iteration
+        # py_trees.display.render_dot_tree(tree.root, name="iteration_{}".format(iteration))
+        # print "ITERATION", iteration
         status = Status.INVALID
         while not status == Status.FAILURE and not status == Status.SUCCESS:
             tree.tick()
@@ -217,22 +298,72 @@ def pa_bt(ppa_set, goal_conditions):
             ascii_tree = py_trees.display.ascii_tree(
             tree.root,
             snapshot_information=snapshot_visitor)
-            print ascii_tree
-            time.sleep(1.0)
-            print blackboard
+            # print ascii_tree
+            # time.sleep(1.0)
+            if door_counter < 3:
+                if blackboard.get("b_on") == "c":
+                    unstack_block(blackboard)
+                    door_counter += 1
+            # random_event(blackboard)
+            # print blackboard
         if status == Status.SUCCESS:
             break
         failed_condition = get_condition_to_expand(tree, condition_bfs, expanded_nodes)
         if not failed_condition:
             continue
-        tree, tree_new_subtree = expand_tree(tree, ppa_set, failed_condition)
+        tree, tree_new_subtree, conflict = expand_tree(
+            tree, ppa_set, failed_condition, last_action_visitor.last_action)
         # TODO(kmuhlrad): for now ignore conflicts, since they are irrelevant
         # in this examples
-        # while conflict(tree):
-        #     print "CONFLICT"
-        #     tree = increase_priority(tree, tree_new_subtree)
+        if conflict:
+            # print "CONFLICT"
+            import pdb
+            # pdb.set_trace()
+            ascii_tree = py_trees.display.ascii_tree(tree.root)
+            # print "LAST ACTION", last_action_visitor.last_action.name
+            # print "SUBTREE ROOT", tree_new_subtree.name
+            failed_condition_index = ascii_tree.index(last_action_visitor.last_action.name)
+            subtree_index = ascii_tree.index(tree_new_subtree.name)
+
+            # print "FAILED INDEX", failed_condition_index
+            # print "SUBTREE INDEX", subtree_index
+
+            # import pdb
+            # pdb.set_trace()
+
+            while failed_condition_index < subtree_index:
+                
+                # print "CONFLICT"
+                # print
+                # print "BEFORE TREE"
+                # print py_trees.display.ascii_tree(tree.root)
+                # print
+                # print
+                # print
+                # print "SUBTREE"
+                # print py_trees.display.ascii_tree(tree_new_subtree)
+                # print
+                # print
+                # print
+                increase_priority(tree, tree_new_subtree)
+                # print
+                # print
+                # print
+                # print "NEW TREE"
+                # print py_trees.display.ascii_tree(tree.root)
+                # print
+                # print
+                # print
+                ascii_tree = py_trees.display.ascii_tree(tree.root)
+                failed_condition_index = ascii_tree.index(last_action_visitor.last_action.name)
+                subtree_index = ascii_tree.index(tree_new_subtree.name)
+                # pdb.set_trace()
         iteration += 1
-        time.sleep(1.0)
+        # time.sleep(1.0)
+    end = time.time()
+    # print "TOTAL ITERATIONS:", iteration
+    # print "TOTAL TIME:", end - start
+    return end - start
 
 def make_soup_can_ppa_set():
     '''
@@ -295,13 +426,52 @@ def init_blackboard():
     blackboard.set("right_door_open", True)
 
 
+def test_increase_priority():
+    root = py_trees.composites.Sequence(name="Root")
+
+    count1 = py_trees.behaviours.Count(name="1")
+    count2 = py_trees.behaviours.Count(name="2")
+    count3 = py_trees.behaviours.Count(name="3")
+    count4 = py_trees.behaviours.Count(name="4")
+
+    seq1 = py_trees.composites.Sequence(name="Sequence")
+    sel1 = py_trees.composites.Selector(name="Selector")
+    seq2 = py_trees.composites.Sequence(name="Nested")
+    
+    root.add_children([seq1, sel1])
+    seq1.add_children([count1, count2])
+    sel1.add_children([seq2, count3])
+    seq2.add_child(count4)
+
+    tree = BehaviourTree(root)
+
+    print py_trees.display.ascii_tree(root)
+
+    print get_node_level(sel1)
+
+    print py_trees.display.ascii_tree(root)
+
+
 if __name__ == "__main__":
+    import sys
+    args = sys.argv
+    if len(args) != 2:
+        total_runs = 1
+    else:
+        total_runs = int(args[1])
+
     py_trees.logging.level = py_trees.logging.Level.INFO
 
     ppa_set = make_soup_can_ppa_set()
 
-    init_blackboard()
+    avg_time = 0
+    for i in range(total_runs):
+        init_blackboard()
+        goal_conditions = [Condition("soup_on", "shelf_lower")]
+        avg_time += pa_bt(ppa_set, goal_conditions)
 
-    goal_conditions = [Condition("soup_on", "shelf_lower")]
+    avg_time /= total_runs
 
-    pa_bt(ppa_set, goal_conditions)
+    print "AVERAGE TIME", avg_time
+
+    # test_increase_priority()

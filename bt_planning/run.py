@@ -1,7 +1,10 @@
-from behaviors import *
+from behaviors import (
+    RobotMoving, Holding, On, DoorOpen, Pick, Place, OpenDoor)
+
 import py_trees
 from py_trees.composites import Selector, Sequence
 from py_trees.meta import inverter
+from py_trees.common import Status
 
 import time
 import numpy as np
