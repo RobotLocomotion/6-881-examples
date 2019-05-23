@@ -53,7 +53,7 @@ image_files = {
 def CreateYcbObjectClutter():
     ycb_object_pairs = []
 
-    X_WCracker = _xyz_rpy([0.35, 0.14, 0.09], [0, -1.57, 4])
+    X_WCracker = _xyz_rpy([0.35, 0.14, 0.09], [0, -1.57, 4.01])
     ycb_object_pairs.append(
         ("drake/manipulation/models/ycb/sdf/003_cracker_box.sdf", X_WCracker))
 
@@ -74,18 +74,11 @@ def CreateYcbObjectClutter():
         ("drake/manipulation/models/ycb/sdf/005_tomato_soup_can.sdf", X_WSoup))
 
     # The mustard bottle pose.
-    X_WMustard = _xyz_rpy([0.44, -0.16, 0.09], [-1.57, 0, 3.3])
-    '''
-    [[-9.69829800e-01  1.44285253e-04 -2.43782975e-01  4.45281370e-01]
- [ 2.43782981e-01  2.15142685e-05 -9.69829809e-01 -1.61993966e-01]
- [-1.34687327e-04 -9.99999989e-01 -5.60394677e-05  8.22916025e-02]
- [ 0.00000000e+00  0.00000000e+00  0.00000000e+00  1.00000000e+00]]
-
-    '''
-    # X_WMustard = RigidTransform(np.array([[-9.69829800e-01,  1.44285253e-04, -2.43782975e-01,  4.45281370e-01],
-    #                                       [ 2.43782981e-01,  2.15142685e-05, -9.69829809e-01, -1.61993966e-01],
-    #                                      [-1.34687327e-04, -9.99999989e-01, -5.60394677e-05,  8.22916025e-02],
-    #                                         [ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,  1.00000000e+00]]))
+    # X_WMustard = _xyz_rpy([0.44, -0.16, 0.09], [-1.57, 0, 3.3])
+    X_WMustard = RigidTransform(np.array([[-9.69829800e-01,  1.44285253e-04, -2.43782975e-01,  4.45281370e-01],
+                                          [ 2.43782981e-01,  2.15142685e-05, -9.69829809e-01, -1.61993966e-01],
+                                         [-1.34687327e-04, -9.99999989e-01, -5.60394677e-05,  8.22916025e-02],
+                                            [ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,  1.00000000e+00]]))
     ycb_object_pairs.append(
         ("drake/manipulation/models/ycb/sdf/006_mustard_bottle.sdf",
          X_WMustard))
@@ -198,6 +191,8 @@ def SegmentColor(color_thresholds, area_points, area_colors, model, model_image,
     return final_points, final_colors
 
 def PruneOutliers(points, colors, min_distance, num_neighbors, init_center=np.zeros(3), max_center_dist=3.0):
+    if not points.size or not colors.size:
+        return points, colors
     nbrs = NearestNeighbors(n_neighbors=num_neighbors).fit(np.copy(points))
     distances, indices = nbrs.kneighbors(np.copy(points))
 
@@ -283,12 +278,13 @@ def SegmentSoupCan(scene_points, scene_colors, model, model_image, init_pose):
 
     area_points, area_colors = scene_points[indices, :], scene_colors[indices, :]
 
-    z_min = 0.292
-    z_max = 0.6
+    # z_min = 0.292
+    # z_max = 0.6
+    #
+    # z_indices = ThresholdArray(area_points[:, 2], z_min, z_max)
 
-    z_indices = ThresholdArray(area_points[:, 2], z_min, z_max)
-
-    return area_points[z_indices, :], area_colors[z_indices, :]
+    # return area_points[z_indices, :], area_colors[z_indices, :]
+    return area_points, area_colors
 
     # r_min = 100
     # r_max = 255
@@ -322,6 +318,7 @@ def SegmentMustardBottle(scene_points, scene_colors, model, model_image, init_po
     color_thresholds = [r_min, r_max, g_min, g_max, b_min, b_max]
 
     segmented_points, segmented_colors = SegmentColor(color_thresholds, area_points, area_colors, model, model_image, init_pose)
+
 
     final_points, final_colors = PruneOutliers(segmented_points, segmented_colors, 0.01, 40)
 
@@ -398,12 +395,12 @@ def SegmentMeatCan(scene_points, scene_colors, model, model_image, init_pose):
     # return final_points, final_colors
 
 seg_functions = {
-    'cracker': SegmentCrackerBox,
+    'cracker': None, #SegmentCrackerBox,
     'sugar': SegmentSugarBox,
-    'soup': SegmentSoupCan,
-    'mustard': SegmentMustardBottle,
+    'soup': None, #SegmentSoupCan,
+    'mustard': None, #SegmentMustardBottle,
     # 'gelatin': SegmentGelatinBox,
-    'meat': SegmentMeatCan,
+    'meat': None, #SegmentMeatCan,
 }
 
 def ConstructObjectInfoDict():
@@ -515,29 +512,30 @@ def main():
         builder.Connect(station.GetOutputPort("pose_bundle"),
                         meshcat.get_input_port(0))
 
-        contact_vis = builder.AddSystem(MeshcatContactVisualizer(
-            meshcat, contact_force_scale=-7.5, plant=station.get_multibody_plant()))
-        builder.Connect(station.GetOutputPort("pose_bundle"),
-                        contact_vis.GetInputPort("pose_bundle"))
-        builder.Connect(station.GetOutputPort("contact_results"),
-                        contact_vis.GetInputPort("contact_results"))
+        # contact_vis = builder.AddSystem(MeshcatContactVisualizer(
+        #     meshcat, contact_force_scale=-7.5, plant=station.get_multibody_plant()))
+        # builder.Connect(station.GetOutputPort("pose_bundle"),
+        #                 contact_vis.GetInputPort("pose_bundle"))
+        # builder.Connect(station.GetOutputPort("contact_results"),
+        #                 contact_vis.GetInputPort("contact_results"))
 
         scene_pc_vis = builder.AddSystem(MeshcatPointCloudVisualizer(
             meshcat, name="scene_point_cloud"))
         builder.Connect(pc_synth.GetOutputPort("combined_point_cloud_W"),
                         scene_pc_vis.GetInputPort("point_cloud_P"))
 
+        obj_name = "meat"
         mustard_pc_vis = builder.AddSystem(MeshcatPointCloudVisualizer(
-            meshcat, name="mustard_bottle_point_cloud"))
-        mustard_pc_vis.set_name("other_system")
+            meshcat, name="{}_point_cloud".format(obj_name)))
         builder.Connect(pose_refinement_system.GetOutputPort(
-            "segmented_point_cloud_W_mustard"),
+            "segmented_point_cloud_W_{}".format(obj_name)),
                         mustard_pc_vis.GetInputPort("point_cloud_P"))
     else:
         ConnectDrakeVisualizer(builder, station.get_scene_graph(),
                                station.GetOutputPort("pose_bundle"))
 
-    q0 = np.array([0, -0.2136, 0, -2.094, 0, 0.463, 0]) #[0, 0, 0, -1.75, 0, 1.0, 0]
+    # q0 = np.array([0, -0.2136, 0, -2.094, 0, 0.463, 0])
+    q0 = np.array([0, 0, 0, -1.75, 0, 1.0, 0])
 
     # build diagram
     diagram = builder.Build()
@@ -559,16 +557,15 @@ def main():
         station.GetInputPort("wsg_force_limit").get_index(), [50])
 
     # Door now starts open
-    # left_hinge_joint = station.get_multibody_plant().GetJointByName("left_door_hinge")
-    # left_hinge_joint.set_angle(station_context, angle=-np.pi/2)
-    # right_hinge_joint = station.get_multibody_plant().GetJointByName("right_door_hinge")
-    # right_hinge_joint.set_angle(station_context, angle=np.pi/2)
+    left_hinge_joint = station.get_multibody_plant().GetJointByName("left_door_hinge")
+    left_hinge_joint.set_angle(station_context, angle=-np.pi/2)
+    right_hinge_joint = station.get_multibody_plant().GetJointByName("right_door_hinge")
+    right_hinge_joint.set_angle(station_context, angle=np.pi/2)
 
-    # import cv2
-    # context = diagram.GetMutableSubsystemContext(
-    #     dope_system, simulator.get_mutable_context())
-    # annotated_image = dope_system.GetOutputPort(
-    #     "annotated_rgb_image").Eval(context).data
+    context = diagram.GetMutableSubsystemContext(
+        dope_system, simulator.get_mutable_context())
+    annotated_image = dope_system.GetOutputPort(
+        "annotated_rgb_image").Eval(context).data
     # cv2.imshow("dope image", cv2.cvtColor(annotated_image, cv2.COLOR_RGB2BGR))
     # cv2.waitKey(0)
 
@@ -578,22 +575,7 @@ def main():
     simulator.Initialize()
     simulator.StepTo(2.0)
 
-
-
     # Check the poses.
-    print("DOPE POSES")
-    pose_bundle = dope_system.GetOutputPort("pose_bundle_W").Eval(context)
-    for i in range(pose_bundle.get_num_poses()):
-        if pose_bundle.get_name(i) == "mustard":
-            import meshcat.geometry as g
-            print pose_bundle.get_name(i), pose_bundle.get_pose(i).matrix()
-            bounding_box = g.Box([9.6/100., 19.13/100., 5.82/100.])
-            material = g.MeshBasicMaterial(color=0xffffff)
-            mesh = g.Mesh(geometry=bounding_box, material=material)
-            meshcat.vis["dope"].set_object(mesh)
-            meshcat.vis["dope"].set_transform(pose_bundle.get_pose(i).matrix())
-
-    print("\n\nICP POSES")
     colors = {
         'cracker': 0x0dff80,
         'sugar': 0xe8de0c,
@@ -610,12 +592,27 @@ def main():
         # 'gelatin': [8.92/100., 7.31/100., 3/100.],
         'meat': [10.16/100., 8.35/100., 5.76/100.]
     }
+
+    import meshcat.geometry as g
+
+    print("DOPE POSES")
+    pose_bundle = dope_system.GetOutputPort("pose_bundle_W").Eval(context)
+    for i in range(pose_bundle.get_num_poses()):
+        if pose_bundle.get_name(i) in ["mustard", "soup", "meat", "cracker", "sugar"]:
+            print pose_bundle.get_name(i), pose_bundle.get_pose(i).matrix()
+            bounding_box = g.Box(sizes[pose_bundle.get_name(i)])
+            material = g.MeshBasicMaterial(colors[pose_bundle.get_name(i)])
+            mesh = g.Mesh(geometry=bounding_box, material=material)
+            meshcat.vis["{}_dope".format(pose_bundle.get_name(i))].set_object(mesh)
+            meshcat.vis["{}_dope".format(pose_bundle.get_name(i))].set_transform(pose_bundle.get_pose(i).matrix())
+
+    print("\n\nICP POSES")
     p_context = diagram.GetMutableSubsystemContext(
         pose_refinement_system, simulator.get_mutable_context())
     pose_bundle = pose_refinement_system.GetOutputPort(
         "refined_pose_bundle_W").Eval(p_context)
     for obj_name in ["soup", "mustard", "meat"]:
-        import meshcat.geometry as g
+        # import meshcat.geometry as g
         for i in range(pose_bundle.get_num_poses()):
             if pose_bundle.get_name(i) == obj_name:
                 pose = pose_bundle.get_pose(i)
@@ -623,8 +620,8 @@ def main():
         bounding_box = g.Box(sizes[obj_name])
         material = g.MeshBasicMaterial(color=colors[obj_name])
         mesh = g.Mesh(geometry=bounding_box, material=material)
-        meshcat.vis[obj_name].set_object(mesh)
-        meshcat.vis[obj_name].set_transform(pose.matrix())
+        meshcat.vis["{}_icp".format(obj_name)].set_object(mesh)
+        meshcat.vis["{}_icp".format(obj_name)].set_transform(pose.matrix())
         print obj_name, pose.matrix().tolist()
 
 
@@ -661,7 +658,7 @@ def main():
 if __name__ == "__main__":
     main()  # This is what you would have, but the following is useful:
 
-    # # These are temporary, for debugging, so meh for programming style.
+    # These are temporary, for debugging, so meh for programming style.
     # import sys, trace
     #
     # # If there are segfaults, it's a good idea to always use stderr as it

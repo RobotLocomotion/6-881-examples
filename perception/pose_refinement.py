@@ -99,13 +99,22 @@ class PoseRefinement(LeafSystem):
 
         output_fields = mut.Fields(mut.BaseField.kXYZs | mut.BaseField.kRGBs)
         for object_name in self.object_info_dict:
-            self.DeclareAbstractOutputPort(
-                "segmented_point_cloud_W_{}".format(object_name),
-                lambda: AbstractValue.Make(
-                    mut.PointCloud(
+            if object_name != "meat":
+                self.DeclareAbstractOutputPort(
+                    "segmented_point_cloud_W_{}".format(object_name),
+                    lambda: AbstractValue.Make(
+                        mut.PointCloud(
+                        fields=output_fields)),
+                    lambda context, output: self.DoCalcSegmentedPointCloud(
+                        context, output, object_name))
+
+        self.DeclareAbstractOutputPort(
+            "segmented_point_cloud_W_meat".format(object_name),
+            lambda: AbstractValue.Make(
+                mut.PointCloud(
                     fields=output_fields)),
-                lambda context, output: self.DoCalcSegmentedPointCloud(
-                    context, output, object_name))
+            lambda context, output: self.DoCalcSegmentedPointCloud(
+                context, output, "meat"))
 
     def DefaultSegmentSceneFunction(
             self, scene_points, scene_colors, model, model_image, init_pose):
@@ -251,6 +260,8 @@ class PoseRefinement(LeafSystem):
             if pose_bundle.get_name(i) == object_name:
                 pose_bundle_index = i
                 break
+
+        # print "calculating point cloud of", object_name
 
         init_pose = pose_bundle.get_pose(pose_bundle_index)
         object_points, object_colors = self._SegmentObject(

@@ -171,6 +171,12 @@ if __name__ == "__main__":
     # Create the PointCloudSynthesis system.
     pc_synth = builder.AddSystem(PointCloudSynthesis(transform_dict))
 
+    meshcat = builder.AddSystem(MeshcatVisualizer(
+        station.get_scene_graph(), zmq_url=args.meshcat,
+        open_browser=args.open_browser))
+    builder.Connect(station.GetOutputPort("pose_bundle"),
+                    meshcat.get_input_port(0))
+
     # Create the duts.
     # use scale factor of 1/1000 to convert mm to m
     duts = {}
@@ -189,11 +195,11 @@ if __name__ == "__main__":
         builder.Connect(duts[id].point_cloud_output_port(),
                         pc_synth.GetInputPort("point_cloud_P_{}".format(id)))
 
-    meshcat = builder.AddSystem(MeshcatVisualizer(
-        station.get_scene_graph(), zmq_url=args.meshcat,
-        open_browser=args.open_browser))
-    builder.Connect(station.GetOutputPort("pose_bundle"),
-                    meshcat.get_input_port(0))
+        scene_pc_vis = builder.AddSystem(MeshcatPointCloudVisualizer(
+            meshcat, name="point_cloud_{}".format(id)))
+        builder.Connect(duts[id].point_cloud_output_port(),
+                        scene_pc_vis.GetInputPort("point_cloud_P"))
+
 
     scene_pc_vis = builder.AddSystem(MeshcatPointCloudVisualizer(
         meshcat, name="scene_point_cloud"))
@@ -211,6 +217,30 @@ if __name__ == "__main__":
 
     station_context = diagram.GetMutableSubsystemContext(
         station, simulator.get_mutable_context())
+
+    import cv2
+    image_num = 2
+    image = station.GetOutputPort("camera_{}_depth_image".format(image_num)).Eval(station_context).data
+
+    # img8 = (image.astype(np.float32)/256.).astype('uint8')
+    # rescaled = np.clip(img8*255./6, 0, 255).astype('uint8')
+
+    img8 = (image.astype(np.float32)*127/256.).astype('uint8')
+    # rescaled = np.clip(img8*255./6, 0, 255).astype('uint8')
+
+    counts = np.zeros(256)
+    for i in range(img8.shape[0]):
+        for j in range(img8.shape[1]):
+            counts[img8[i, j]] += 1
+
+    print img8
+
+
+    # ind = np.argpartition(img8.reshape((407040, 1)).flatten(), -4)[-4:]
+    # print img8.reshape((407040, 1)).flatten()[ind]
+
+    cv2.imshow("image_{}".format(image_num), img8)
+    cv2.waitKey(0)
 
     pc = pc_synth.GetOutputPort("combined_point_cloud_W").Eval(context)
 
