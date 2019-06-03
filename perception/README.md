@@ -12,21 +12,21 @@ Object Pose Estimation. See below for more details.
 - `inference/` is a directory containing code provided by NVidia for DOPE. For
 more information and the license, see below.
 
-- `point_cloud_to_pose_system.py`: `PointCloudToPoseSystem` is a Drake 
-`LeafSystem` that takes in point clouds and RGB images and returns the pose of 
-a specific object. The user supplies a camera configuration file, a function to 
-segment an object from the aligned point cloud, and a function to compute the 
-pose of the object from the segmented point cloud.
-- `run_perception_system.py` contains an example of using a 
-`PointCloudToPoseSystem` to compute the pose of the foam brick.
+- `pose_refinement.py`: `PoseRefinment` is a Drake `LeafSystem` that, given a
+point cloud and initial guesses of poses of objects in the point cloud, will
+compute refined pose estimates. The user can supply custom object
+segmentation and pose alignment functions.
+
 - `test_perception.py` is a script to test basic functionality of 
 `point_cloud_to_pose_system.py` for continuous integration.
-- `PointCloudVisualization.ipynb` is a Jupyter notebook with examples of 
-visualizing point cloud data retrieved with a `PointCloudToPoseSystem`.
 
 ### Model Files
 Files under the `models/` directory are serialized numpy arrays (`.npy` files) 
 used as models or ground truth for point cloud alignment.
+
+These files were created using the `convert_obj_to_npy.py` script in the
+`perception_tools/` directory on the `.obj` files of each of the YCB objects 
+from the original dataset.
 
 ### Configuration Files
 [YAML](https://learn.getgrav.org/advanced/yaml) configuration files live in the 
@@ -56,6 +56,39 @@ bounding boxes around them in a new RGB image.
 `ManipulationStation` cameras.
 
 ## Using This Module
+
+### DOPE
+`DopeSystem` is a Drake `System` that can run 
+[DOPE](https://github.com/NVlabs/Deep_Object_Pose). The arguments are a 
+configuration file and a path to a directory of weight files. 
+`config/dope_config.yml` is an example config file set up for a 
+Drake `RgbdCamera`. The `DopeSystem` has one input port that takes in an RGB 
+image. It also has two output ports: one that outputs a `PoseBundle` of any 
+recognized objects, and one that produces a new RGB image with bounding boxes 
+drawn over every detected object. See the 
+[DOPE documentation](https://github.com/NVlabs/Deep_Object_Pose) for more 
+details about DOPE.
+
+Note that currently DOPE does not work in the docker image, since it requires 
+GPU access to run. It also does not have CI tests. You must download the 
+weights to the `weights/` directory yourself, following the DOPE setup 
+instructions.
+
+The code was modified from NVidia's provided code, and is licensed under a 
+[Creative-Commons Attribution-NonCommercial-ShareAlike 4.0 International](
+https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode) license. Any 
+modifications were indicated in the relevant files.
+
+#### Running DOPE
+There is an example of using `DopeSystem` with a `ManipulationStation` at the 
+end of `dope_system.py`. Just run it via
+```sh
+$ python dope_system.py
+```
+Poses of recognized objects will be printed in the terminal window, and a 
+separate window should pop up containing the annotated RGB image.
+
+### OLD
 To run the example of getting the pose of the foam brick, execute 
 `run_perception_system.py` with a camera configuration file. For example:
 
@@ -101,34 +134,3 @@ $ DISPLAY=:100 jupyter notebook --ip 0.0.0.0 --port 8080 --allow-root --no-brows
 
 Follow the instructions in the terminal to open up the notebook, which can be 
 run just like in the psets.
-
-## DOPE
-`DopeSystem` is a Drake `System` that can run 
-[DOPE](https://github.com/NVlabs/Deep_Object_Pose). The arguments are a 
-configuration file and a path to a directory of weight files. 
-`config/dope_config.yml` is an example config file set up for a 
-Drake `RgbdCamera`. The `DopeSystem` has one input port that takes in an RGB 
-image. It also has two output ports: one that outputs a `PoseBundle` of any 
-recognized objects, and one that produces a new RGB image with bounding boxes 
-drawn over every detected object. See the 
-[DOPE documentation](https://github.com/NVlabs/Deep_Object_Pose) for more 
-details about DOPE.
-
-Note that currently DOPE does not work in the docker image, since it requires 
-GPU access to run. It also does not have CI tests. You must download the 
-weights to the `weights/` directory yourself, following the DOPE setup 
-instructions.
-
-The code was modified from NVidia's provided code, and is licensed under a 
-[Creative-Commons Attribution-NonCommercial-ShareAlike 4.0 International](
-https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode) license. Any 
-modifications were indicated in the relevant files.
-
-### Running DOPE
-There is an example of using `DopeSystem` with a `ManipulationStation` at the 
-end of `dope_system.py`. Just run it via
-```sh
-$ python dope_system.py
-```
-Poses of recognized objects will be printed in the terminal window, and a 
-separate window should pop up containing the annotated RGB image.
