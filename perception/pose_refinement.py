@@ -2,7 +2,6 @@ import argparse
 import numpy as np
 import os
 
-from PIL import Image
 from perception_tools.file_utils import ReadPosesFromFile, LoadCameraConfigFile
 from perception_tools.iterative_closest_point import RunICP
 from perception_tools.visualization_utils import ThresholdArray
@@ -18,9 +17,10 @@ from pydrake.systems.framework import AbstractValue, DiagramBuilder, LeafSystem
 from pydrake.systems.rendering import PoseBundle
 from pydrake.systems.sensors import PixelType
 
+
 class ObjectInfo(object):
 
-    def __init__(self, object_name, model_points_file, model_image_file,
+    def __init__(self, object_name, model_points_file,
                  segment_scene_function=None, alignment_function=None):
         """
         ObjectInfo is a data structure containing the relevant information
@@ -30,8 +30,6 @@ class ObjectInfo(object):
         @param object_name str. The name of the object.
         @param model_points_file str. The path to a .npy file containing a
             point cloud of the model object in world frame.
-        @param model_image_file str. The path to an image file containing the
-            colored object texture.
         @param segment_scene_function function. A function that segments the
             object out of the entire scene point cloud. For more details about
             the method signature and expected behavior, see
@@ -43,7 +41,6 @@ class ObjectInfo(object):
         """
         self.object_name = object_name
         self.model_points_file = model_points_file
-        self.model_image_file = model_image_file
         self.segment_scene_function = segment_scene_function
         self.alignment_function = alignment_function
 
@@ -52,10 +49,10 @@ class PoseRefinement(LeafSystem):
 
     def __init__(self, object_info_dict):
         """
-        A system that takes in a point cloud, initial pose guesses, and some
-        ObjectInfo objects to calculate refined poses for each of the
+        A system that takes in a point cloud, initial pose guesses, and a dict
+        of ObjectInfo objects to calculate refined poses for each of the
         objects. Through the ObjectInfo dictionary, the user can optionally
-        provide custom segmentation and pose alignment function used to
+        provide custom segmentation and pose alignment functions used to
         determine the final pose. If these functions aren't supplied,
         the default functions in this class will be used. All point clouds and
         poses are assumed to be in world frame. The output is a pose_bundle
@@ -85,7 +82,6 @@ class PoseRefinement(LeafSystem):
         self.point_cloud_port = self.DeclareAbstractInputPort(
             "point_cloud_W", AbstractValue.Make(mut.PointCloud()))
 
-
         self.pose_bundle_port = self.DeclareAbstractInputPort(
             "pose_bundle_W", AbstractValue.Make(PoseBundle(
                 num_poses=len(self.object_info_dict))))
@@ -99,25 +95,17 @@ class PoseRefinement(LeafSystem):
 
         output_fields = mut.Fields(mut.BaseField.kXYZs | mut.BaseField.kRGBs)
         for object_name in self.object_info_dict:
-            if object_name != "meat":
-                self.DeclareAbstractOutputPort(
-                    "segmented_point_cloud_W_{}".format(object_name),
-                    lambda: AbstractValue.Make(
-                        mut.PointCloud(
-                        fields=output_fields)),
-                    lambda context, output: self.DoCalcSegmentedPointCloud(
+            self.DeclareAbstractOutputPort(
+                "segmented_point_cloud_W_{}".format(object_name),
+                lambda: AbstractValue.Make(
+                    mut.PointCloud(
+                    fields=output_fields)),
+                lambda context, output, object_name=object_name:
+                    self.DoCalcSegmentedPointCloud(
                         context, output, object_name))
 
-        self.DeclareAbstractOutputPort(
-            "segmented_point_cloud_W_meat".format(object_name),
-            lambda: AbstractValue.Make(
-                mut.PointCloud(
-                    fields=output_fields)),
-            lambda context, output: self.DoCalcSegmentedPointCloud(
-                context, output, "meat"))
-
     def DefaultSegmentSceneFunction(
-            self, scene_points, scene_colors, model, model_image, init_pose):
+            self, scene_points, scene_colors, model, init_pose):
         """
         Returns a subset of the scene point cloud representing the segmentation
         of the object of interest.
@@ -127,8 +115,8 @@ class PoseRefinement(LeafSystem):
         size of the largest model dimension of either side of the initial pose.
         For example, if the largest dimension of the model was 2 and init_pose
         was located at (0, 3, 4), all points included in the segmentation mask
-        have x-values between [-2, 2], y-values between [1, 5], and z-values
-        between [2, 6].
+        would have x-values between [-2, 2], y-values between [1, 5], and
+        z-values between [2, 6].
 
         If a custom scene segmentation function is supplied, it must have this
         method signature.
@@ -137,7 +125,6 @@ class PoseRefinement(LeafSystem):
         @param scene_colors An Nx3 numpy array of rgb values corresponding to
             the points in scene_points.
         @param model A Px3 numpy array representing the object model.
-        @param model_image A PIL.Image containing the object texture.
         @param init_pose A RigidTransform representing the initial guess of the
             pose of the object.
 
@@ -173,13 +160,13 @@ class PoseRefinement(LeafSystem):
         return scene_points[indices, :], scene_colors[indices, :]
 
     def DefaultAlignPoseFunction(self, segmented_object_points,
-                                 segmented_object_colors, model,
-                                 model_image, init_pose):
+                                 segmented_object_colors, model, init_pose):
         """Returns the pose of the object of interest.
 
         The default pose alignment function runs ICP on the segmented scene
         with a maximum of 100 iterations and stopping threshold of 1e-8. If
-        the segmented scene is empty, it will return the initial pose.
+        the segmented scene point cloud is empty, this function will return the
+        initial pose guess.
 
         If a custom pose alignment function is supplied, it must have this
         method signature.
@@ -190,7 +177,6 @@ class PoseRefinement(LeafSystem):
         @param segmented_object_colors An Nx3 numpy array of the segmented
             object colors.
         @param model A Px3 numpy array representing the object model.
-        @param model_image A PIL.Image containing the object texture.
         @param init_pose An RigidTransform representing the initial guess of the
             pose of the object.
 
@@ -208,31 +194,29 @@ class PoseRefinement(LeafSystem):
 
     def _SegmentObject(self, point_cloud, object_info, init_pose):
         model = np.load(object_info.model_points_file)
-        model_image = Image.open(object_info.model_image_file)
 
         scene_points = np.copy(point_cloud.xyzs()).T
         scene_colors = np.copy(point_cloud.rgbs()).T
 
         if object_info.segment_scene_function:
             return object_info.segment_scene_function(
-                    scene_points, scene_colors, model, model_image, init_pose)
+                    scene_points, scene_colors, model, init_pose)
         else:
             return self.DefaultSegmentSceneFunction(
-                    scene_points, scene_colors, model, model_image, init_pose)
+                    scene_points, scene_colors, model, init_pose)
 
     def _RefineSinglePose(self, point_cloud, object_info, init_pose):
         model = np.load(object_info.model_points_file)
-        model_image = Image.open(object_info.model_image_file)
 
         object_points, object_colors = self._SegmentObject(
             point_cloud, object_info, init_pose)
 
         if object_info.alignment_function:
             return object_info.alignment_function(
-                object_points, object_colors, model, model_image, init_pose)
+                object_points, object_colors, model, init_pose)
         else:
             return self.DefaultAlignPoseFunction(
-                object_points, object_colors, model, model_image, init_pose)
+                object_points, object_colors, model, init_pose)
 
     def DoCalcOutput(self, context, output):
         pose_bundle = self.EvalAbstractInput(
@@ -261,8 +245,6 @@ class PoseRefinement(LeafSystem):
                 pose_bundle_index = i
                 break
 
-        # print "calculating point cloud of", object_name
-
         init_pose = pose_bundle.get_pose(pose_bundle_index)
         object_points, object_colors = self._SegmentObject(
             point_cloud, self.object_info_dict[object_name], init_pose)
@@ -273,7 +255,7 @@ class PoseRefinement(LeafSystem):
 
 
 def CustomAlignmentFunctionDummy(segmented_scene_points, segmented_scene_colors,
-                                 model, model_image, init_pose):
+                                 model, init_pose):
     """Returns the identity matrix of the object of interest.
 
     This is an example of writing a custom pose alignment function. Although
@@ -286,7 +268,6 @@ def CustomAlignmentFunctionDummy(segmented_scene_points, segmented_scene_colors,
     @param segmented_scene_colors An Nx3 numpy array of the segmented object
         colors.
     @param model A Px3 numpy array representing the object model.
-    @param model_image A PIL.Image containing the object texture.
     @param init_pose An RigidTransform representing the initial guess of the
         pose of the object.
 
@@ -310,27 +291,9 @@ def ConstructDefaultObjectInfoDict(custom_align):
         "meat": model_file_base_path + "010_potted_meat_can_textured.npy"
     }
 
-    image_file_base_path = FindResourceOrThrow(
-        "drake/manipulation/models/ycb/meshes")
-    image_files = {
-        "cracker": os.path.join(image_file_base_path,
-                                "003_cracker_box_textured.png"),
-        "sugar": os.path.join(image_file_base_path,
-                              "004_sugar_box_textured.png"),
-        "soup": os.path.join(image_file_base_path,
-                             "005_tomato_soup_can_textured.png"),
-        "mustard": os.path.join(image_file_base_path,
-                                "006_mustard_bottle_textured.png"),
-        "gelatin": os.path.join(image_file_base_path,
-                                "009_gelatin_box_textured.png"),
-        "meat": os.path.join(image_file_base_path,
-                             "010_potted_meat_can_textured.png")
-    }
-
     for object_name in model_files:
         info = ObjectInfo(object_name,
                           model_files[object_name],
-                          image_files[object_name],
                           alignment_function=(
                               CustomAlignmentFunctionDummy if custom_align else None))
         object_info_dict[object_name] = info

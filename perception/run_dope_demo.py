@@ -5,7 +5,7 @@ import numpy as np
 from pydrake.examples.manipulation_station import ManipulationStation, _xyz_rpy
 from pydrake.geometry import ConnectDrakeVisualizer
 from pydrake.systems.analysis import Simulator
-from pydrake.systems.framework import DiagramBuilder
+from pydrake.systems.framework import DiagramBuilder, AbstractValue
 from pydrake.systems.lcm import LcmPublisherSystem
 from pydrake.systems.meshcat_visualizer import MeshcatVisualizer, MeshcatPointCloudVisualizer, MeshcatContactVisualizer
 from pydrake.systems.primitives import Demultiplexer, LogOutput
@@ -13,7 +13,7 @@ from pydrake.systems.sensors import ImageToLcmImageArrayT, PixelType
 import pydrake.perception as mut
 
 from dope_system import DopeSystem
-from perception_tools.point_cloud_synthesis import PointCloudSynthesis
+from pydrake.systems.perception import PointCloudConcatenation
 from pose_refinement import PoseRefinement, ObjectInfo
 from perception_tools.visualization_utils import ThresholdArray
 from perception_tools.file_utils import LoadCameraConfigFile
@@ -36,17 +36,6 @@ model_files = {
     "mustard": model_file_base_path + "006_mustard_bottle_textured.npy",
     # "gelatin": model_file_base_path + "009_gelatin_box_textured.npy",
     "meat": model_file_base_path + "010_potted_meat_can_textured.npy"
-}
-
-image_file_base_path = "/home/amazon/drake-build/install/share/drake/" \
-                       "manipulation/models/ycb/meshes/"
-image_files = {
-    "cracker": image_file_base_path + "003_cracker_box_textured.png",
-    "sugar": image_file_base_path + "004_sugar_box_textured.png",
-    "soup": image_file_base_path + "005_tomato_soup_can_textured.png",
-    "mustard": image_file_base_path + "006_mustard_bottle_textured.png",
-    # "gelatin": image_file_base_path + "009_gelatin_box_textured.png",
-    "meat": image_file_base_path + "010_potted_meat_can_textured.png"
 }
 
 
@@ -74,11 +63,11 @@ def CreateYcbObjectClutter():
         ("drake/manipulation/models/ycb/sdf/005_tomato_soup_can.sdf", X_WSoup))
 
     # The mustard bottle pose.
-    # X_WMustard = _xyz_rpy([0.44, -0.16, 0.09], [-1.57, 0, 3.3])
-    X_WMustard = RigidTransform(np.array([[-9.69829800e-01,  1.44285253e-04, -2.43782975e-01,  4.45281370e-01],
-                                          [ 2.43782981e-01,  2.15142685e-05, -9.69829809e-01, -1.61993966e-01],
-                                         [-1.34687327e-04, -9.99999989e-01, -5.60394677e-05,  8.22916025e-02],
-                                            [ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,  1.00000000e+00]]))
+    X_WMustard = _xyz_rpy([0.44, -0.16, 0.09], [-1.57, 0, 3.3])
+    # X_WMustard = RigidTransform(np.array([[-9.69829800e-01,  1.44285253e-04, -2.43782975e-01,  4.45281370e-01],
+    #                                       [ 2.43782981e-01,  2.15142685e-05, -9.69829809e-01, -1.61993966e-01],
+    #                                      [-1.34687327e-04, -9.99999989e-01, -5.60394677e-05,  8.22916025e-02],
+    #                                         [ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,  1.00000000e+00]]))
     ycb_object_pairs.append(
         ("drake/manipulation/models/ycb/sdf/006_mustard_bottle.sdf",
          X_WMustard))
@@ -101,7 +90,7 @@ def CreateYcbObjectClutter():
     return ycb_object_pairs
 
 
-def SegmentArea(scene_points, scene_colors, model, model_image, init_pose):
+def SegmentArea(scene_points, scene_colors, model, init_pose):
     """
     Returns a subset of the scene point cloud representing the segmentation
     of the object of interest.
@@ -169,7 +158,7 @@ def SegmentArea(scene_points, scene_colors, model, model_image, init_pose):
 
     return scene_points[indices, :], scene_colors[indices, :]
 
-def SegmentColor(color_thresholds, area_points, area_colors, model, model_image, init_pose):
+def SegmentColor(color_thresholds, area_points, area_colors, model, init_pose):
     r_min = color_thresholds[0]
     r_max = color_thresholds[1]
 
@@ -206,7 +195,7 @@ def PruneOutliers(points, colors, min_distance, num_neighbors, init_center=np.ze
 
     return np.copy(points)[outliers, :], np.copy(colors)[outliers, :]
 
-def SegmentCrackerBox(scene_points, scene_colors, model, model_image, init_pose):
+def SegmentCrackerBox(scene_points, scene_colors, model, init_pose):
     return scene_points, scene_colors
     # area_points, area_colors = SegmentArea(scene_points, scene_colors, model, model_image, init_pose)
     #
@@ -227,7 +216,7 @@ def SegmentCrackerBox(scene_points, scene_colors, model, model_image, init_pose)
     #
     # return final_points, final_colors
 
-def SegmentSugarBox(scene_points, scene_colors, model, model_image, init_pose):
+def SegmentSugarBox(scene_points, scene_colors, model, init_pose):
     return scene_points, scene_colors
     # area_points, area_colors = SegmentArea(scene_points, scene_colors, model, model_image, init_pose)
     #
@@ -248,7 +237,7 @@ def SegmentSugarBox(scene_points, scene_colors, model, model_image, init_pose):
     #
     # return final_points, final_colors
 
-def SegmentSoupCan(scene_points, scene_colors, model, model_image, init_pose):
+def SegmentSoupCan(scene_points, scene_colors, model, init_pose):
     max_delta_x = np.abs(np.max(model[:, 0]) - np.min(model[:, 0]))
     max_delta_y = np.abs(np.max(model[:, 1]) - np.min(model[:, 1]))
     max_delta_z = np.abs(np.max(model[:, 2]) - np.min(model[:, 2]))
@@ -303,8 +292,8 @@ def SegmentSoupCan(scene_points, scene_colors, model, model_image, init_pose):
     #
     # return final_points, final_colors
 
-def SegmentMustardBottle(scene_points, scene_colors, model, model_image, init_pose):
-    area_points, area_colors = SegmentArea(scene_points, scene_colors, model, model_image, init_pose)
+def SegmentMustardBottle(scene_points, scene_colors, model, init_pose):
+    area_points, area_colors = SegmentArea(scene_points, scene_colors, model, init_pose)
 
     r_min = 100
     r_max = 255
@@ -317,15 +306,14 @@ def SegmentMustardBottle(scene_points, scene_colors, model, model_image, init_po
 
     color_thresholds = [r_min, r_max, g_min, g_max, b_min, b_max]
 
-    segmented_points, segmented_colors = SegmentColor(color_thresholds, area_points, area_colors, model, model_image, init_pose)
-
+    segmented_points, segmented_colors = SegmentColor(color_thresholds, area_points, area_colors, model, init_pose)
 
     final_points, final_colors = PruneOutliers(segmented_points, segmented_colors, 0.01, 40)
 
     return final_points, final_colors
 
-def SegmentGelatinBox(scene_points, scene_colors, model, model_image, init_pose):
-    area_points, area_colors = SegmentArea(scene_points, scene_colors, model, model_image, init_pose)
+def SegmentGelatinBox(scene_points, scene_colors, model, init_pose):
+    area_points, area_colors = SegmentArea(scene_points, scene_colors, model, init_pose)
 
     r_min = 0
     r_max = 255
@@ -338,13 +326,13 @@ def SegmentGelatinBox(scene_points, scene_colors, model, model_image, init_pose)
 
     color_thresholds = [r_min, r_max, g_min, g_max, b_min, b_max]
 
-    segmented_points, segmented_colors = SegmentColor(color_thresholds, area_points, area_colors, model, model_image, init_pose)
+    segmented_points, segmented_colors = SegmentColor(color_thresholds, area_points, area_colors, model, init_pose)
 
     final_points, final_colors = PruneOutliers(segmented_points, segmented_colors, 0.01, 20)
 
     return final_points, final_colors
 
-def SegmentMeatCan(scene_points, scene_colors, model, model_image, init_pose):
+def SegmentMeatCan(scene_points, scene_colors, model, init_pose):
     max_delta_x = np.abs(np.max(model[:, 0]) - np.min(model[:, 0]))
     max_delta_y = np.abs(np.max(model[:, 1]) - np.min(model[:, 1]))
     max_delta_z = np.abs(np.max(model[:, 2]) - np.min(model[:, 2]))
@@ -388,7 +376,7 @@ def SegmentMeatCan(scene_points, scene_colors, model, model_image, init_pose):
     #
     # color_thresholds = [r_min, r_max, g_min, g_max, b_min, b_max]
     #
-    # segmented_points, segmented_colors = SegmentColor(color_thresholds, area_points, area_colors, model, model_image, init_pose)
+    # segmented_points, segmented_colors = SegmentColor(color_thresholds, area_points, area_colors, model, init_pose)
     #
     # final_points, final_colors = PruneOutliers(segmented_points, segmented_colors, 0.01, 30, init_pose.matrix()[:3, 3], 0.074)
     #
@@ -409,7 +397,6 @@ def ConstructObjectInfoDict():
     for object_name in model_files:
         info = ObjectInfo(object_name,
                           model_files[object_name],
-                          image_files[object_name],
                           segment_scene_function=seg_functions[object_name])
         object_info_dict[object_name] = info
 
@@ -438,7 +425,7 @@ def main():
     pose_refinement_system = builder.AddSystem(
         PoseRefinement(object_info_dict))
 
-    # Create the PointCloudSynthesis system.
+    # Create the PointCloudConcatenation system.
     id_list = station.get_camera_names()
     left_serial = "1"
     middle_serial = "2"
@@ -446,11 +433,7 @@ def main():
 
     camera_configs = LoadCameraConfigFile(
         "/home/amazon/6-881-examples/perception/config/sim.yml")
-    transform_dict = {}
-    for id in id_list:
-        transform_dict[id] = camera_configs[id]["camera_pose_world"].multiply(
-            camera_configs[id]["camera_pose_internal"])
-    pc_synth = builder.AddSystem(PointCloudSynthesis(transform_dict))
+    pc_concat = builder.AddSystem(PointCloudConcatenation(id_list))
 
     X_WCamera = camera_configs[right_serial]["camera_pose_world"].multiply(
         camera_configs[right_serial]["camera_pose_internal"])
@@ -487,19 +470,21 @@ def main():
             station.GetOutputPort("camera_" + name + "_depth_image"),
             duts[name].depth_image_input_port())
 
-    builder.Connect(duts[left_serial].point_cloud_output_port(),
-                    pc_synth.GetInputPort("point_cloud_P_" + left_serial))
-    builder.Connect(duts[middle_serial].point_cloud_output_port(),
-                    pc_synth.GetInputPort("point_cloud_P_" + middle_serial))
-    builder.Connect(duts[right_serial].point_cloud_output_port(),
-                    pc_synth.GetInputPort("point_cloud_P_" + right_serial))
+    for id in [left_serial, middle_serial, right_serial]:
+        builder.Connect(duts[id].point_cloud_output_port(),
+                        pc_concat.GetInputPort("point_cloud_CiSi_{}".format(id)))
+
+    # builder.Connect(duts[middle_serial].point_cloud_output_port(),
+    #                 pc_concat.GetInputPort("point_cloud_P_" + middle_serial))
+    # builder.Connect(duts[right_serial].point_cloud_output_port(),
+    #                 pc_concat.GetInputPort("point_cloud_P_" + right_serial))
 
     # Connect the rgb images to the DopeSystem.
     builder.Connect(station.GetOutputPort(right_name_prefix + "_rgb_image"),
                     dope_system.GetInputPort("rgb_input_image"))
 
     # Connect the PoseRefinement system.
-    builder.Connect(pc_synth.GetOutputPort("combined_point_cloud_W"),
+    builder.Connect(pc_concat.GetOutputPort("point_cloud_FS"),
                     pose_refinement_system.GetInputPort("point_cloud_W"))
     builder.Connect(dope_system.GetOutputPort("pose_bundle_W"),
                     pose_refinement_system.GetInputPort("pose_bundle_W"))
@@ -521,15 +506,15 @@ def main():
 
         scene_pc_vis = builder.AddSystem(MeshcatPointCloudVisualizer(
             meshcat, name="scene_point_cloud"))
-        builder.Connect(pc_synth.GetOutputPort("combined_point_cloud_W"),
+        builder.Connect(pc_concat.GetOutputPort("point_cloud_FS"),
                         scene_pc_vis.GetInputPort("point_cloud_P"))
 
-        obj_name = "meat"
-        mustard_pc_vis = builder.AddSystem(MeshcatPointCloudVisualizer(
-            meshcat, name="{}_point_cloud".format(obj_name)))
-        builder.Connect(pose_refinement_system.GetOutputPort(
-            "segmented_point_cloud_W_{}".format(obj_name)),
-                        mustard_pc_vis.GetInputPort("point_cloud_P"))
+        for obj_name in model_files:
+            pc_vis = builder.AddSystem(MeshcatPointCloudVisualizer(
+                meshcat, name="{}_point_cloud".format(obj_name)))
+            builder.Connect(pose_refinement_system.GetOutputPort(
+                "segmented_point_cloud_W_{}".format(obj_name)),
+                pc_vis.GetInputPort("point_cloud_P"))
     else:
         ConnectDrakeVisualizer(builder, station.get_scene_graph(),
                                station.GetOutputPort("pose_bundle"))
@@ -555,6 +540,15 @@ def main():
         station.GetInputPort("wsg_position").get_index(), [0.05])
     station_context.FixInputPort(
         station.GetInputPort("wsg_force_limit").get_index(), [50])
+
+    pc_concat_context = diagram.GetMutableSubsystemContext(
+        pc_concat, simulator.get_mutable_context())
+    for id in id_list:
+        X_WP = camera_configs[id]["camera_pose_world"].multiply(
+            camera_configs[id]["camera_pose_internal"])
+        pc_concat_context.FixInputPort(
+            pc_concat.GetInputPort("X_FCi_{}".format(id)).get_index(),
+            AbstractValue.Make(X_WP))
 
     # Door now starts open
     left_hinge_joint = station.get_multibody_plant().GetJointByName("left_door_hinge")
@@ -624,6 +618,9 @@ def main():
         meshcat.vis["{}_icp".format(obj_name)].set_transform(pose.matrix())
         print obj_name, pose.matrix().tolist()
 
+    scene_pc = pose_refinement_system.GetInputPort("point_cloud_W").Eval(p_context)
+    np.save("scene_points", scene_pc.xyzs())
+    np.save("scene_points", scene_pc.rgbs())
 
     import cv2
     # context = diagram.GetMutableSubsystemContext(
