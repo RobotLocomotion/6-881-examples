@@ -19,8 +19,7 @@ from pydrake.examples.manipulation_station import (ManipulationStation,
                                                    CreateDefaultYcbObjectList)
 from pydrake.math import RigidTransform
 from pydrake.systems.analysis import Simulator
-from pydrake.systems.framework import (AbstractValue, BasicVector,
-                                       DiagramBuilder, LeafSystem)
+from pydrake.systems.framework import AbstractValue, DiagramBuilder, LeafSystem
 from pydrake.systems.rendering import PoseBundle
 from pydrake.systems.sensors import ImageRgba8U
 
@@ -280,7 +279,7 @@ if __name__ == "__main__":
         station.AddManipulandFromFile(model_file, X_WObject)
     station.Finalize()
 
-    # Connect the rgb images to the DopeSystem.
+    # Connect the rgb image to the DopeSystem.
     builder.Connect(station.GetOutputPort("camera_0_rgb_image"),
                     dope_system.GetInputPort("rgb_input_image"))
 
