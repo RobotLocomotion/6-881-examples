@@ -18,6 +18,8 @@ cloud alignment on numpy point clouds and visualize them in meshcat. It was
 used in pset 3.
 - `visualization_utils.py` contains methods used throughout the labs and psets 
 that are useful for visualizing perception data.
+- `file_utils.py` contains methods for reading configuration files and plain
+text poses.
 
 ## Using these scripts
 

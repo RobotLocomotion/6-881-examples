@@ -17,6 +17,10 @@ point cloud and initial guesses of poses of objects in the point cloud, will
 compute refined pose estimates. The user can supply custom object
 segmentation and pose alignment functions.
 
+- `run_dope_demo.py`: A script that will create a `ManipulationStation` with
+many YCB objects, run DOPE to estimate all of their poses, and uses a
+`PoseRefinement` to get better pose estimates of the specified objects.
+
 - `test_perception.py` is a script to test basic functionality of 
 `point_cloud_to_pose_system.py` for continuous integration.
 
@@ -88,49 +92,43 @@ $ python dope_system.py
 Poses of recognized objects will be printed in the terminal window, and a 
 separate window should pop up containing the annotated RGB image.
 
-### OLD
-To run the example of getting the pose of the foam brick, execute 
-`run_perception_system.py` with a camera configuration file. For example:
+### run\_dope\_demo.py
 
+This script was used to create the bounding box estimates in [this video](
+https://youtu.be/zUS33rvbRsc). It goes through the whole process of creating a
+`ManipulationStation` with YCB objects, merging the images of all of the cameras
+into a single point cloud, running DOPE on one of the RGB images, and getting
+refined pose estimates of some of the objects DOPE recognized. Note that this 
+only gives pose estimates at a single timestep. In order to produce the updated
+bounding boxes in the video, this script was run again with the poses of all of
+the objects manually changed if needed, and possibly different object
+segmentation functions as well. Currently the default segmentation function is
+used for all objects, but there are examples of custom ones to use.
+
+The custom ones had various success, but the default ones work very well for
+the current object configuration. However, when objects moved farther away, a new
+segmentation function such as `SegmentFarMeatCan` was used. The reasoning behind
+this is that when the object is farther away from the camera, the DOPE pose is
+less accurate, so a larger initial area should be inspected. Then, since we know
+we just placed the meat can on the bottom shelf and we know the location of the
+bottom shelf, we can ignore points outside of that region.
+
+To run this script and visualize the output in Meshcat, call
 ```sh
-$ python run_perception_system.py --config_file=config/sim.yml
+$ python run_dope_demo.py --meshcat --open_browser
 ```
+from the command line. A browser window should open with Meshcat and the system
+will simulate for a few seconds to allow the objects to settle and the arm to
+move into its initial position. Then, DOPE will estimate the pose of every YCB
+object it sees, and solid-colored boxes will appear on the point cloud at all of
+the estimated locations. The colors are the same as DOPE uses to draw bounding
+boxes around the objects in the images. The DOPE pose estimates will also be
+printed out to the screen.
 
-If the given configuration file is `sim.yml`, the simulated 
-[`ManipulationStation`](
-https://drake.mit.edu/doxygen_cxx/classdrake_1_1examples_1_1manipulation__station_1_1_manipulation_station.html) 
-will be created. If configuration file is one of the station configurations, 
-a [`ManipulationStationHardwareInterface`](
-https://drake.mit.edu/doxygen_cxx/classdrake_1_1examples_1_1manipulation__station_1_1_manipulation_station_hardware_interface.html) 
-will be created, and the script will wait to receive LCM messages from the 
-robot, gripper, and cameras. More information about running the system on the 
-hardware will be explained in the lab.
+Then, `PoseRefinement` will run ICP over the specific objects in the script, and
+more boxes will show up in meshcat representing the refined poses. Additionally,
+all of the segmented point clouds will be shown in the drop down meshcat menu.
+The updated poses will also be printed out to the screen.
 
-### Running in Docker
-If these scripts are running in a docker container, in order to enable graphics,
- run the following lines in a docker bash session:
-
-```sh
-$ Xvfb :100 -ac -screen 0 800x600x24 &
-$ DISPLAY=:100 python run_perception_system.py --config_file=config/sim.yml
-```
-
-### Visualization
-There is currently no way to automatically visualize these point clouds in 
-meshcat. The best way to visualize the point clouds is to save the numpy arrays 
-created in `point_cloud_to_pose_system.py` and load them in a Jupyter notebook, 
-similar to psets 2 and 3. To do that, initialize a `PointCloudToPoseSystem` 
-with the parameter `viz=True`. The point clouds from each of the cameras, the 
-aligned scene point cloud, and the segmented point cloud will all be saved as 
-`.npy` files under a directory called `saved_point_clouds`. Examples of 
-viewing them are in `PointCloudVisualization.ipynb`. To run that file in a 
-docker container (that's already in the `perception/` directory):
-
-```sh
-$ Xvfb :100 -ac -screen 0 800x600x24 &
-$ mkdir saved_point_clouds
-$ DISPLAY=:100 jupyter notebook --ip 0.0.0.0 --port 8080 --allow-root --no-browser
-```
-
-Follow the instructions in the terminal to open up the notebook, which can be 
-run just like in the psets.
+At the end of the script, the annotated DOPE image will be displayed. Press any
+key with the window active to close it and stop the script.
