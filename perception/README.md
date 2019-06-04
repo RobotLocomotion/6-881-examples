@@ -21,8 +21,7 @@ segmentation and pose alignment functions.
 many YCB objects, run DOPE to estimate all of their poses, and uses a
 `PoseRefinement` to get better pose estimates of the specified objects.
 
-- `test_perception.py` is a script to test basic functionality of 
-`point_cloud_to_pose_system.py` for continuous integration.
+- `test_perception.py` is a blank script where perception tests can be added.
 
 ### Model Files
 Files under the `models/` directory are serialized numpy arrays (`.npy` files) 
