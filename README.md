@@ -3,6 +3,8 @@
 
 This repository contains a collection of tools for interacting with robots and cameras, developed to support the Intelligent Robot Manipulation class [(MIT 6.881)](https://manipulation.csail.mit.edu/).
 
+Note that the master branch is currently on a version of Drake from December 2018. For newer code that doesn't have tests that run against CI, see the [km_thesis_work](https://github.com/RobotLocomotion/6-881-examples/tree/km_thesis_work) branch.
+
 ## Pre-reqs
 In the root directory of this repository, run the following command in a terminal to build a docker image that includes Drake and denpendencies for PDDLStream:
 ```bash
