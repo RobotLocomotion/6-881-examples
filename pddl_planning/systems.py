@@ -2,11 +2,11 @@ from pydrake.systems.framework import DiagramBuilder
 from pydrake.systems.primitives import Demultiplexer, LogOutput
 
 def connect_plan_runner(builder, station, plan):
-    from plan_runner.manipulation_station_plan_runner import ManipStationPlanRunner
+    from plan_runner.manipulation_station_joint_trajectory_runner import ManipStationJointTrajectoryRunner
     plan_list, gripper_setpoints = plan
 
     # Add plan runner.
-    plan_runner = ManipStationPlanRunner(plan_list, gripper_setpoints)
+    plan_runner = ManipStationJointTrajectoryRunner(plan_list, gripper_setpoints)
 
     builder.AddSystem(plan_runner)
     builder.Connect(plan_runner.hand_setpoint_output_port,

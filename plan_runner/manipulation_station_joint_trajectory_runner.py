@@ -1,11 +1,11 @@
-import numpy as np
-import sys
 from pydrake.systems.framework import BasicVector, LeafSystem, PortDataType
+
 from plan_runner.robot_plans import *
-from plan_runner.open_left_door_plans import *
+
+from pydrake.trajectories import PiecewisePolynomial
 
 
-class ManipStationPlanRunner(LeafSystem):
+class ManipStationJointTrajectoryRunner(LeafSystem):
     """ A drake system that sends commands to the robot and gripper by evaluating the currently
     active Plan.
 
@@ -28,25 +28,27 @@ class ManipStationPlanRunner(LeafSystem):
     - kuka_plans be an empty list, or
     - kuka_plans[0].traj be a valid PiecewisePolynomial.
     """
-    def __init__(self, kuka_plans, gripper_setpoint_list, control_period=0.005, print_period=0.5):
+
+    def __init__(self, iiwa_trajectories, gripper_setpoint_list,
+                 control_period=0.005, print_period=0.5):
         LeafSystem.__init__(self)
-        assert len(kuka_plans) == len(gripper_setpoint_list)
-        self.set_name("Manipulation Plan Runner")
+        assert len(iiwa_trajectories) == len(gripper_setpoint_list)
+        self.set_name("ManipulationJointSpaceTrajectoryRunner")
 
         # Add a zero order hold to hold the current position of the robot
-        kuka_plans.insert(0, JointSpacePlanRelative(
+        iiwa_trajectories.insert(0, JointSpacePlanRelative(
             duration=3.0, delta_q=np.zeros(7)))
         gripper_setpoint_list.insert(0, 0.055)
 
-        if len(kuka_plans) > 1:
+        if len(iiwa_trajectories) > 1:
             # Insert to the beginning of plan_list a plan that moves the robot from its
             # current position to plan_list[0].traj.value(0)
-            kuka_plans.insert(1, JointSpacePlanGoToTarget(
-                duration=6.0, q_target=kuka_plans[1].traj.value(0).flatten()))
+            iiwa_trajectories.insert(1, JointSpacePlanGoToTarget(
+                duration=6.0, q_target=iiwa_trajectories[1].traj.value(0).flatten()))
             gripper_setpoint_list.insert(0, 0.055)
 
         self.gripper_setpoint_list = gripper_setpoint_list
-        self.kuka_plans_list = kuka_plans
+        self.kuka_plans_list = iiwa_trajectories
 
         self.current_plan_start_time = 0.
         self.current_plan = None
@@ -77,15 +79,18 @@ class ManipStationPlanRunner(LeafSystem):
         # position and torque command output port
         self.iiwa_position_command_output_port = \
             self._DeclareVectorOutputPort("iiwa_position_command",
-                                          BasicVector(self.nu), self._CalcIiwaPositionCommand)
+                                          BasicVector(self.nu),
+                                          self._CalcIiwaPositionCommand)
         self.iiwa_torque_command_output_port = \
             self._DeclareVectorOutputPort("iiwa_torque_command",
-                                          BasicVector(self.nu), self._CalcIiwaTorqueCommand)
+                                          BasicVector(self.nu),
+                                          self._CalcIiwaTorqueCommand)
 
         # gripper setpoint and torque limit
         self.hand_setpoint_output_port = \
             self._DeclareVectorOutputPort(
-                "gripper_setpoint", BasicVector(1), self._CalcGripperSetpointOutput)
+                "gripper_setpoint", BasicVector(1),
+                self._CalcGripperSetpointOutput)
         self.gripper_force_limit_output_port = \
             self._DeclareVectorOutputPort(
                 "force_limit", BasicVector(1), self._CalcForceLimitOutput)
@@ -94,7 +99,7 @@ class ManipStationPlanRunner(LeafSystem):
         # state[0:7]: position command
         # state[7:14]: torque command
         # state[14]: gripper_setpoint
-        self._DeclareDiscreteState(self.nu*2 + 1)
+        self._DeclareDiscreteState(self.nu * 2 + 1)
         self._DeclarePeriodicDiscreteUpdate(period_sec=self.control_period)
 
         self.kPlanDurationMultiplier = 1.1
@@ -113,46 +118,55 @@ class ManipStationPlanRunner(LeafSystem):
             if t - self.current_plan_start_time >= adjusted_duration:
                 if len(self.kuka_plans_list) > 0:
                     self.current_plan = self.kuka_plans_list.pop(0)
-                    self.current_gripper_setpoint = self.gripper_setpoint_list.pop(0)
+                    self.current_gripper_setpoint = self.gripper_setpoint_list.pop(
+                        0)
                 else:
                     # There are no more available plans. Hold current position.
                     self.current_plan = JointSpacePlanRelative(
                         duration=3600., delta_q=np.zeros(7))
-                    print 'No more plans to run, holding current position...\n'
+                    print
+                    'No more plans to run, holding current position...\n'
 
                 self.current_plan_start_time = t
                 self.current_plan_idx += 1
-                print 'Running plan %d' % self.current_plan_idx + " (type: " + self.current_plan.type + \
-                      "), starting at %f for a duration of %f seconds." % \
-                      (t, self.current_plan.duration*self.kPlanDurationMultiplier) + "\n"
+                print
+                'Running plan %d' % self.current_plan_idx + " (type: " + self.current_plan.type + \
+                "), starting at %f for a duration of %f seconds." % \
+                (t,
+                 self.current_plan.duration * self.kPlanDurationMultiplier) + "\n"
 
     def _DoCalcDiscreteVariableUpdates(self, context, events, discrete_state):
         # Call base method to ensure we do not get recursion.
-        LeafSystem._DoCalcDiscreteVariableUpdates(self, context, events, discrete_state)
+        LeafSystem._DoCalcDiscreteVariableUpdates(self, context, events,
+                                                  discrete_state)
 
         self._GetCurrentPlan(context)
 
-        t= context.get_time()
+        t = context.get_time()
         q_iiwa = self.EvalVectorInput(
             context, self.iiwa_position_input_port.get_index()).get_value()
         v_iiwa = self.EvalVectorInput(
             context, self.iiwa_velocity_input_port.get_index()).get_value()
         tau_iiwa = self.EvalVectorInput(
-            context, self.iiwa_external_torque_input_port.get_index()).get_value()
+            context,
+            self.iiwa_external_torque_input_port.get_index()).get_value()
         t_plan = t - self.current_plan_start_time
 
         new_control_output = discrete_state.get_mutable_vector().get_mutable_value()
 
         new_control_output[0:self.nu] = \
-            self.current_plan.CalcPositionCommand(q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period)
-        new_control_output[self.nu:2*self.nu] = \
-            self.current_plan.CalcTorqueCommand(q_iiwa, v_iiwa, tau_iiwa, t_plan, self.control_period)
+            self.current_plan.CalcPositionCommand(q_iiwa, v_iiwa, tau_iiwa,
+                                                  t_plan, self.control_period)
+        new_control_output[self.nu:2 * self.nu] = \
+            self.current_plan.CalcTorqueCommand(q_iiwa, v_iiwa, tau_iiwa,
+                                                t_plan, self.control_period)
         new_control_output[14] = self.current_gripper_setpoint
 
         # print current simulation time
         if (self.print_period and
                 t - self.last_print_time >= self.print_period):
-            print "t: ", t
+            print
+            "t: ", t
             self.last_print_time = t
 
     def _CalcIiwaPositionCommand(self, context, y_data):
@@ -165,7 +179,7 @@ class ManipStationPlanRunner(LeafSystem):
         state = context.get_discrete_state_vector().get_value()
         y = y_data.get_mutable_value()
         # Get the ith finger control output
-        y[:] = state[self.nu:2*self.nu]
+        y[:] = state[self.nu:2 * self.nu]
 
     def _CalcGripperSetpointOutput(self, context, y_data):
         state = context.get_discrete_state_vector().get_value()
@@ -175,4 +189,3 @@ class ManipStationPlanRunner(LeafSystem):
 
     def _CalcForceLimitOutput(self, context, output):
         output.SetAtIndex(0, 15.0)
-

@@ -10,9 +10,8 @@ from pydrake.systems.analysis import Simulator
 from pydrake.common.eigen_geometry import Isometry3
 from pydrake.systems.primitives import Demultiplexer, LogOutput
 
-from underactuated.meshcat_visualizer import MeshcatVisualizer
-# from pydrake.systems.meshcat_visualizer import MeshcatVisualizer
-from plan_runner.manipulation_station_plan_runner import ManipStationPlanRunner
+from pydrake.systems.meshcat_visualizer import MeshcatVisualizer
+from plan_runner.manipulation_station_joint_trajectory_runner import ManipStationJointTrajectoryRunner
 from plan_runner.manipulation_station_plan_runner_diagram import CreateManipStationPlanRunnerDiagram
 from plan_runner.plan_utils import *
 
@@ -75,8 +74,8 @@ class ManipulationStationSimulator:
                 kuka_plans=plan_list,
                 gripper_setpoint_list=gripper_setpoint_list)
         else:
-            plan_runner = ManipStationPlanRunner(
-                kuka_plans=plan_list,
+            plan_runner = ManipStationJointTrajectoryRunner(
+                iiwa_trajectories=plan_list,
                 gripper_setpoint_list=gripper_setpoint_list)
             duration_multiplier = plan_runner.kPlanDurationMultiplier
 
@@ -131,7 +130,6 @@ class ManipulationStationSimulator:
         # build diagram
         diagram = builder.Build()
         if is_visualizing:
-            viz.load()
             time.sleep(2.0)
             RenderSystemWithGraphviz(diagram)
 
@@ -209,8 +207,8 @@ class ManipulationStationSimulator:
                 gripper_setpoint_list=gripper_setpoint_list,
                 print_period=0,)
         else:
-            plan_runner = ManipStationPlanRunner(
-                kuka_plans=plan_list,
+            plan_runner = ManipStationJointTrajectoryRunner(
+                iiwa_trajectories=plan_list,
                 gripper_setpoint_list=gripper_setpoint_list,
                 print_period=0,)
             duration_multiplier = plan_runner.kPlanDurationMultiplier

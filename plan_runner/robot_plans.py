@@ -9,11 +9,6 @@ from plan_utils import *
 plan_type_strings = [
     "JointSpacePlan",
     "JointSpacePlanRelative",
-    "IiwaTaskSpacePlan",
-    "PlanarTaskSpacePlan",
-    "PlanarHybridPositionForcePlan",
-    "OpenLeftDoorPositionPlan",
-    "OpenLeftDoorImpedancePlan",
     "JointSpacePlanGoToTarget",
 ]
 
@@ -38,7 +33,8 @@ class PlanBase:
     def get_duration(self):
         return self.duration
 
-    def CalcPositionCommand(self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period):
+    def CalcPositionCommand(self, q_iiwa, q_cmd, v_iiwa, tau_iiwa, t_plan,
+                            control_period):
         pass
 
     def CalcTorqueCommand(self, q_iiwa, v_iiwa, tau_iiwa, t_plan, control_period):

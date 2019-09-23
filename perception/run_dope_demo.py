@@ -522,7 +522,7 @@ def main():
     pose_bundle = dope_system.GetOutputPort("pose_bundle_W").Eval(context)
     for i in range(pose_bundle.get_num_poses()):
         if pose_bundle.get_name(i) in ["mustard", "soup", "meat", "cracker", "sugar"]:
-            print pose_bundle.get_name(i), pose_bundle.get_pose(i).matrix()
+            print(pose_bundle.get_name(i), pose_bundle.get_pose(i).matrix())
             bounding_box = g.Box(sizes[pose_bundle.get_name(i)])
             material = g.MeshBasicMaterial(colors[pose_bundle.get_name(i)])
             mesh = g.Mesh(geometry=bounding_box, material=material)
@@ -544,7 +544,7 @@ def main():
         mesh = g.Mesh(geometry=bounding_box, material=material)
         meshcat.vis["{}_icp".format(obj_name)].set_object(mesh)
         meshcat.vis["{}_icp".format(obj_name)].set_transform(pose.matrix())
-        print obj_name, pose.matrix().tolist()
+        print(obj_name, pose.matrix().tolist())
 
     scene_pc = pose_refinement_system.GetInputPort("point_cloud_W").Eval(p_context)
     np.save("scene_points", scene_pc.xyzs())

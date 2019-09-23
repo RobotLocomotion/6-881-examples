@@ -100,18 +100,17 @@ def LoadCameraConfigFile(config_file):
     camera_configs = {}
     with open(config_file, 'r') as stream:
         try:
-            config = yaml.load(stream)
+            config = yaml.safe_load(stream)
             for camera in config:
                 serial_no, X_WCamera, X_CameraDepth, camera_info = \
                     _ParseCameraConfig(config[camera])
                 id = str(serial_no)
                 camera_configs[id] = {}
                 camera_configs[id]["camera_pose_world"] = X_WCamera
-                camera_configs[id]["camera_pose_internal"] = \
-                    X_CameraDepth
+                camera_configs[id]["camera_pose_internal"] = X_CameraDepth
                 camera_configs[id]["camera_info"] = camera_info
         except yaml.YAMLError as exc:
-            print "could not parse config file"
-            print exc
+            print("could not parse config file")
+            print(exc)
 
     return camera_configs

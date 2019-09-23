@@ -2,7 +2,7 @@ import argparse
 import numpy as np
 import cProfile
 from plan_runner.manipulation_station_simulator import ManipulationStationSimulator
-from plan_runner.manipulation_station_plan_runner import *
+from plan_runner.manipulation_station_joint_trajectory_runner import *
 from plan_runner.open_left_door import GenerateExampleJointAndTaskSpacePlans
 
 if __name__ == '__main__':
